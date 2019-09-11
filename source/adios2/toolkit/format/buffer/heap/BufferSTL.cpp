@@ -27,7 +27,7 @@ void BufferSTL::Resize(const size_t size, const std::string hint)
     {
         // doing this will effectively replace the STL GNU default power of 2
         // reallocation.
-        m_Buffer.reserve(size);
+        //m_Buffer.reserve(size);
         // must initialize memory (secure)
         m_Buffer.resize(size, '\0');
     }
