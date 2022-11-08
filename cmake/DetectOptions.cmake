@@ -373,6 +373,22 @@ if(ADIOS2_USE_SST AND NOT WIN32)
   find_package(UCX)
   if(UCX_FOUND)
     set(ADIOS2_SST_HAVE_UCX TRUE)
+  else()
+    pkg_check_modules(PC_UCX ucx)
+    if(PC_UCX_FOUND)
+      message(STATUS "Found UCX via pkgconfig.")
+      foreach(subtarget ucp uct ucs)
+        add_library(ucx::${subtarget} INTERFACE IMPORTED)
+        #target_link_libraries(ucx::${subtarget} INTERFACE ucx)
+        set_target_properties(ucx::${subtarget} PROPERTIES
+          INTERFACE_INCLUDE_DIRECTORIES "${PC_UCX${_PC_TYPE}_INCLUDE_DIRS}"
+          INTERFACE_LINK_LIBRARIES "${PC_UCX${_PC_TYPE}_LINK_LIBRARIES}"
+          INTERFACE_COMPILE_OPTIONS "${PC_UCX${_PC_TYPE}_CFLAGS_OTHER}")
+      endforeach()
+      set(ADIOS2_SST_HAVE_UCX TRUE)
+    else()
+      message(STATUS "Did not find UCX via pkgconfig.")
+    endif()
   endif()
 endif()
 
