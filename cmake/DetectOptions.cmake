@@ -370,16 +370,19 @@ if(ADIOS2_USE_SST AND NOT WIN32)
     endif()
   endif()
 
-  find_package(UCX)
+  find_package(UCX QUIET)
   if(UCX_FOUND)
+    message(STATUS "Found UCX via find_package.")
     set(ADIOS2_SST_HAVE_UCX TRUE)
   else()
     pkg_check_modules(PC_UCX ucx)
     if(PC_UCX_FOUND)
       message(STATUS "Found UCX via pkgconfig.")
+      # If `find_package` finds ucx, three libraries are created in CMake.
+      # Since the rest of the CMake scripts assume presence of these three
+      # libraries, pretend that they also exist when finding ucx via packagecfg.
       foreach(subtarget ucp uct ucs)
         add_library(ucx::${subtarget} INTERFACE IMPORTED)
-        #target_link_libraries(ucx::${subtarget} INTERFACE ucx)
         set_target_properties(ucx::${subtarget} PROPERTIES
           INTERFACE_INCLUDE_DIRECTORIES "${PC_UCX${_PC_TYPE}_INCLUDE_DIRS}"
           INTERFACE_LINK_LIBRARIES "${PC_UCX${_PC_TYPE}_LINK_LIBRARIES}"
@@ -387,7 +390,7 @@ if(ADIOS2_USE_SST AND NOT WIN32)
       endforeach()
       set(ADIOS2_SST_HAVE_UCX TRUE)
     else()
-      message(STATUS "Did not find UCX via pkgconfig.")
+      message(STATUS "Did not find UCX via either find_package or pkgconfig.")
     endif()
   endif()
 endif()
