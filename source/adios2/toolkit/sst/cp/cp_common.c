@@ -1098,6 +1098,7 @@ static void ReadableSizeString(size_t SizeInBytes, char *Output, size_t size)
 
 extern void DoStreamSummary(SstStream Stream)
 {
+    return;
     SstStats AllStats = NULL;
 
     if (Stream->Rank == 0)
