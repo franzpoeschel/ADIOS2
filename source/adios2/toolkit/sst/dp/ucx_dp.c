@@ -57,6 +57,9 @@ struct fabric_state
 
     ucp_address_t *local_addr;
     size_t local_addr_len;
+
+    pthread_t progress_thread;
+    char keep_making_progress;
 };
 
 /*
@@ -285,6 +288,19 @@ static DP_RS_Stream UcxInitReader(CP_Services Svcs, void *CP_Stream, void **Read
     return Stream;
 }
 
+typedef struct fabric_state progress_thread_params;
+
+static void *make_progress(void *params_)
+{
+    progress_thread_params *params = params_;
+    while (params->keep_making_progress)
+    {
+        ucp_worker_progress(params->ucp_worker);
+        sleep(5);
+    }
+    return NULL;
+}
+
 static DP_WS_Stream UcxInitWriter(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params,
                                   attr_list DPAttrs, SstStats Stats)
 {
@@ -306,6 +322,13 @@ static DP_WS_Stream UcxInitWriter(CP_Services Svcs, void *CP_Stream, struct _Sst
     }
 
     Stream->CP_Stream = CP_Stream;
+
+    Stream->Fabric->keep_making_progress = 1;
+    if (pthread_create(&Stream->Fabric->progress_thread, NULL, &make_progress, Stream->Fabric) != 0)
+    {
+        Svcs->verbose(CP_Stream, DPCriticalVerbose, "Could not start thread.\n");
+        return NULL;
+    }
 
     return (void *)Stream;
 }
@@ -714,6 +737,13 @@ static void UcxDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
     pthread_mutex_unlock(&ucx_ts_mutex);
 
     Svcs->verbose(WS_Stream->CP_Stream, DPTraceVerbose, "Tearing down RDMA state on writer.\n");
+
+    WS_Stream->Fabric->keep_making_progress = 0;
+    if (pthread_join(WS_Stream->Fabric->progress_thread, NULL) != 0)
+    {
+        Svcs->verbose(WS_Stream, DPCriticalVerbose, "Could not join thread.\n");
+        return;
+    }
 
     if (WS_Stream->Fabric)
     {
