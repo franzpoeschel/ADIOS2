@@ -118,7 +118,7 @@ static ucs_status_t init_fabric(struct fabric_state *fabric, struct _SstParams *
         return status;
     }
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
-    ucp_params.features = UCP_FEATURE_RMA;
+    ucp_params.features = UCP_FEATURE_RMA | UCP_FEATURE_WAKEUP;
 
     status = ucp_init(&ucp_params, config, &fabric->ucp_context);
     if (status != UCS_OK)
@@ -292,8 +292,10 @@ static void *make_progress(void *params_)
     progress_thread_params *params = params_;
     while (params->keep_making_progress)
     {
-        ucp_worker_progress(params->ucp_worker);
-        sleep(5);
+        ucp_worker_wait(params->ucp_worker);
+        while (ucp_worker_progress(params->ucp_worker) != 0)
+        { // go again}
+        }
     }
     return NULL;
 }
@@ -725,6 +727,7 @@ static void UcxDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
     Svcs->verbose(WS_Stream->CP_Stream, DPTraceVerbose, "Tearing down RDMA state on writer.\n");
 
     WS_Stream->Fabric->keep_making_progress = 0;
+    ucp_worker_signal(WS_Stream->Fabric->ucp_worker);
     if (pthread_join(WS_Stream->Fabric->progress_thread, NULL) != 0)
     {
         Svcs->verbose(WS_Stream, DPCriticalVerbose, "Could not join thread.\n");
