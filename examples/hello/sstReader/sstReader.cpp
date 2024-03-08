@@ -11,6 +11,7 @@
 #include <chrono>
 #include <iostream>
 #include <numeric>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -77,6 +78,14 @@ int main(int argc, char *argv[])
                           << std::endl;
                 break;
             }
+
+            auto axisLabels = sstIO.InquireAttribute<std::string>("axisLabels");
+            std::cout << "AXIS LABELS:";
+            for (auto const & label : axisLabels.Data())
+            {
+                std::cout << " '" << label << "'";
+            }
+            std::cout << std::endl;
 
             adios2::Variable<float> bpFloats = sstIO.InquireVariable<float>("bpFloats");
             // std::cout << "Incoming variable is of size " << bpFloats.Shape()[0] << "\n";

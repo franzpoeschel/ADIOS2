@@ -98,6 +98,9 @@ int main(int argc, char *argv[])
 #endif
         adios2::IO sstIO = adios.DeclareIO("myIO");
         sstIO.SetEngine("Sst");
+        sstIO.SetParameter("MarshalMethod", "bp");
+
+        sstIO.DefineAttribute("axisLabels", std::vector<std::string>{"x", "y", "z"}.data(), 3);
 
         if (rank == 0)
             std::cout << "  assigning SST DataTransport=" << dt << std::endl;
