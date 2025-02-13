@@ -73,6 +73,10 @@ public:
      */
     bool IsValue() const;
 
+    /**
+     */
+    bool IsModifiable() const;
+
 private:
     Attribute(core::Attribute<IOType> *attribute);
     core::Attribute<IOType> *m_Attribute = nullptr;

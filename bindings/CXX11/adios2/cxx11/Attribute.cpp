@@ -67,6 +67,13 @@ namespace adios2
     }                                                                                              \
                                                                                                    \
     template <>                                                                                    \
+    bool Attribute<T>::IsModifiable() const                                                        \
+    {                                                                                              \
+        helper::CheckForNullptr(m_Attribute, "in call to Attribute<T>::IsModifiable()");           \
+        return m_Attribute->m_AllowModification;                                                   \
+    }                                                                                              \
+                                                                                                   \
+    template <>                                                                                    \
     std::string ToString(const Attribute<T> &attribute)                                            \
     {                                                                                              \
         return std::string("Attribute<") + attribute.Type() + ">(Name: \"" + attribute.Name() +    \
