@@ -23,6 +23,8 @@
 #include <rdma/fi_endpoint.h>
 #include <rdma/fi_rma.h>
 
+#include <nvtx3/nvToolsExt.h>
+
 #ifdef SST_HAVE_CRAY_CXI
 #include <stdbool.h>
 // This comment prevents clang-format from reordering these includes.
@@ -202,6 +204,7 @@ struct fi_cq_data_entry *cq_manual_progress_pop(struct cq_manual_progress *self)
 static void make_some_progress(struct cq_manual_progress *params, int timeout,
                                struct fi_cq_data_entry *CQEntries, size_t batch_size)
 {
+    nvtxRangePush("Making some progress");
     struct fi_cq_data_entry data_entry;
     if (!CQEntries || batch_size == 0)
     {
@@ -234,10 +237,12 @@ static void make_some_progress(struct cq_manual_progress *params, int timeout,
             cq_manual_progress_push(params, next_item);
         }
     }
+    nvtxRangePop();
 }
 
 static void *make_progress(void *params_)
 {
+    nvtxMark("Starting progress thread");
     struct cq_manual_progress *params = (struct cq_manual_progress *)params_;
     size_t const batch_size = 100;
     struct fi_cq_data_entry CQEntries[batch_size];
@@ -251,6 +256,7 @@ static void *make_progress(void *params_)
          */
         make_some_progress(params, -1, CQEntries, batch_size);
     }
+    nvtxMark("Stopping progress thread");
     return NULL;
 }
 
@@ -1891,6 +1897,7 @@ static ssize_t PostRead(CP_Services Svcs, Rdma_RS_Stream RS_Stream, int Rank, lo
 
     do
     {
+        nvtxRangePush("Going into fi_read");
         rc = fi_read(Fabric->signal, Buffer, Length, LocalDesc, SrcAddress, (uint64_t)Addr,
                      Info->Key, ret);
         if (Fabric->cq_manual_progress && Fabric->pthread_id == 0)
@@ -1903,6 +1910,7 @@ static ssize_t PostRead(CP_Services Svcs, Rdma_RS_Stream RS_Stream, int Rank, lo
              */
             make_some_progress(Fabric->cq_manual_progress, 0, NULL, 0);
         }
+        nvtxRangePop();
     } while (rc == -EAGAIN);
 
     if (rc != 0)
@@ -2163,11 +2171,17 @@ static int RdmaWaitForCompletion(CP_Services Svcs, void *Handle_v)
 
     if (Stream->PreloadPosted && Handle->PreloadBuffer)
     {
-        return (DoPushWait(Svcs, Stream, Handle));
+        nvtxRangePush("Waiting for completion: DoPushWait");
+        int res = (DoPushWait(Svcs, Stream, Handle));
+        nvtxRangePop();
+        return res;
     }
     else
     {
-        return (DoPullWait(Svcs, Stream, Handle));
+        nvtxRangePush("Waiting for completion: DoPullWait");
+        int res = (DoPullWait(Svcs, Stream, Handle));
+        nvtxRangePop();
+        return res;
     }
 }
 
@@ -2175,6 +2189,7 @@ static void RdmaProvideTimestep(CP_Services Svcs, DP_WS_Stream Stream_v, struct 
                                 struct _SstData *LocalMetadata, long Timestep,
                                 void **TimestepInfoPtr)
 {
+    // nvtxRangePush("Provide timestep");
     Rdma_WS_Stream Stream = (Rdma_WS_Stream)Stream_v;
     TimestepList Entry = malloc(sizeof(struct _TimestepEntry));
     RdmaBufferHandle Info = malloc(sizeof(struct _RdmaBufferHandle));
@@ -2219,6 +2234,7 @@ static void RdmaProvideTimestep(CP_Services Svcs, DP_WS_Stream Stream_v, struct 
 
 static void RdmaReleaseTimestep(CP_Services Svcs, DP_WS_Stream Stream_v, long Timestep)
 {
+    // nvtxRangePop(); // this is too simple, time steps might overlap
     Rdma_WS_Stream Stream = (Rdma_WS_Stream)Stream_v;
     TimestepList *List = &Stream->Timesteps;
     TimestepList ReleaseTSL;

@@ -22,6 +22,7 @@
 
 #include "cp_internal.h"
 #include <adios2-perfstubs-interface.h>
+#include <nvtx3/nvToolsExt.h>
 
 static void CP_PeerFailCloseWSReader(WS_ReaderInfo CP_WSR_Stream, enum StreamStatus NewState);
 
@@ -2137,6 +2138,7 @@ extern void SstInternalProvideTimestep(SstStream Stream, SstData LocalMetadata, 
     pointers = (MetadataPlusDPInfo *)CP_consolidateDataToRankZero(
         Stream, &Md, Stream->CPInfo->PerRankMetadataFormat, &data_block1);
 
+    nvtxRangePush("Distributing metadata from rank 0");
     if (Stream->Rank == 0)
     {
         int DiscardThisTimestep = 0;
@@ -2214,6 +2216,7 @@ extern void SstInternalProvideTimestep(SstStream Stream, SstData LocalMetadata, 
         Stream->PreviousFormats =
             AddUniqueFormats(Stream->PreviousFormats, ReturnData->Msg.Formats, /*copy*/ 1);
     }
+    nvtxRangePop();
     free(data_block1);
     PendingReaderCount = ReturnData->PendingReaderCount;
     *Msg = ReturnData->Msg;
@@ -2241,6 +2244,7 @@ extern void SstInternalProvideTimestep(SstStream Stream, SstData LocalMetadata, 
     PERFSTUBS_TIMER_START(timerTS, "provide timestep operations");
     if (ReturnData->DiscardThisTimestep)
     {
+        nvtxRangePush("sendOneToEachReaderRank");
         /* Data was actually discarded, but we want to send a message to each
          * reader so that it knows a step was discarded, but actually so that we
          * get an error return if the write fails */
@@ -2261,10 +2265,11 @@ extern void SstInternalProvideTimestep(SstStream Stream, SstData LocalMetadata, 
         Entry->ReferenceCount = 0;
         QueueMaintenance(Stream);
         STREAM_MUTEX_UNLOCK(Stream);
+        nvtxRangePop();
     }
     else
     {
-
+        nvtxRangePush("SendTimestepEntryToReaders");
         CP_verbose(Stream, PerStepVerbose,
                    "Sending TimestepMetadata for timestep %ld (ref count "
                    "%d), one to each reader\n",
@@ -2276,7 +2281,9 @@ extern void SstInternalProvideTimestep(SstStream Stream, SstData LocalMetadata, 
         SubRefTimestep(Stream, Entry->Timestep, 0);
         QueueMaintenance(Stream);
         STREAM_MUTEX_UNLOCK(Stream);
+        nvtxRangePop();
     }
+    nvtxRangePush("Wait for pending readers");
     while (PendingReaderCount--)
     {
         WS_ReaderInfo reader;
@@ -2315,6 +2322,7 @@ extern void SstInternalProvideTimestep(SstStream Stream, SstData LocalMetadata, 
             }
         }
     }
+    nvtxRangePop();
     PERFSTUBS_TIMER_STOP(timerTS);
 }
 
