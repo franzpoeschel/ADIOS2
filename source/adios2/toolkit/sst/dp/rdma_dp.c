@@ -1897,7 +1897,7 @@ static ssize_t PostRead(CP_Services Svcs, Rdma_RS_Stream RS_Stream, int Rank, lo
 
     do
     {
-        nvtxRangePush("Going into fi_read");
+        nvtxRangePush("fi_read (PostRead)");
         rc = fi_read(Fabric->signal, Buffer, Length, LocalDesc, SrcAddress, (uint64_t)Addr,
                      Info->Key, ret);
         if (Fabric->cq_manual_progress && Fabric->pthread_id == 0)
@@ -1953,6 +1953,7 @@ static RdmaBuffer GetRequest(Rdma_RS_Stream Stream, RdmaStepLogEntry StepLog, in
 static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int Rank, long Timestep,
                                   size_t Offset, size_t Length, void *Buffer, void *DP_TimestepInfo)
 {
+    nvtxRangePush("RdmaReadRemoteMemory");
     RdmaCompletionHandle ret = {0};
     Rdma_RS_Stream RS_Stream = (Rdma_RS_Stream)Stream_v;
     RdmaBufferHandle Info = (RdmaBufferHandle)DP_TimestepInfo;
@@ -2015,6 +2016,7 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
             if (PostRead(Svcs, RS_Stream, Rank, Timestep, Offset, Length, Buffer, Info, &ret) != 0)
             {
                 free(ret);
+                nvtxRangePop();
                 return (NULL);
             }
         }
@@ -2025,6 +2027,7 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
         if (PostRead(Svcs, RS_Stream, Rank, Timestep, Offset, Length, Buffer, Info, &ret) != 0)
         {
             free(ret);
+            nvtxRangePop();
             return (NULL);
         }
         ret->PreloadBuffer = NULL;
@@ -2036,6 +2039,7 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
     ret->Rank = Rank;
     ret->Length = Length;
 
+    nvtxRangePop();
     return (ret);
 }
 
@@ -2171,14 +2175,14 @@ static int RdmaWaitForCompletion(CP_Services Svcs, void *Handle_v)
 
     if (Stream->PreloadPosted && Handle->PreloadBuffer)
     {
-        nvtxRangePush("Waiting for completion: DoPushWait");
+        nvtxRangePush("RdmaWaitForCompletion: DoPushWait");
         int res = (DoPushWait(Svcs, Stream, Handle));
         nvtxRangePop();
         return res;
     }
     else
     {
-        nvtxRangePush("Waiting for completion: DoPullWait");
+        nvtxRangePush("RdmaWaitForCompletion: DoPullWait");
         int res = (DoPullWait(Svcs, Stream, Handle));
         nvtxRangePop();
         return res;
