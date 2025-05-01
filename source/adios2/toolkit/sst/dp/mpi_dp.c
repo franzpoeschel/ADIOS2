@@ -39,6 +39,8 @@
 #include <sys/queue.h>
 #include <unistd.h>
 
+#include <nvtx3/nvToolsExt.h>
+
 #define MPI_DP_CONTACT_STRING_LEN 64
 #define QUOTE(name) #name
 #define MACRO_TO_STR(name) QUOTE(name)
@@ -456,6 +458,7 @@ static char *LoadTimeStep(MpiStreamWR Stream, size_t TimeStep)
 static void *MpiReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int Rank, size_t TimeStep,
                                  size_t Offset, size_t Length, void *Buffer, void *DP_TimeStepInfo)
 {
+    nvtxRangePush("MPIReadRemoteMemory");
     /* DP_RS_Stream is the return from InitReader */
     MpiStreamRD Stream = (MpiStreamRD)Stream_v;
     CManager cm = Svcs->getCManager(Stream->Stream.CP_Stream);
@@ -495,6 +498,8 @@ static void *MpiReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int Ra
                       Stream->Link.CohortSize);
     }
 
+    nvtxRangePop();
+
     return ret;
 }
 
@@ -512,6 +517,7 @@ static void *MpiReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int Ra
  */
 static int MpiWaitForCompletion(CP_Services Svcs, void *Handle_v)
 {
+    nvtxRangePush("MpiWaitForCompletion");
     const MpiCompletionHandle Handle = (MpiCompletionHandle)Handle_v;
     const struct _MpiReadRequestMsg Request = Handle->ReadRequest;
     int Ret = 0;
@@ -557,6 +563,7 @@ static int MpiWaitForCompletion(CP_Services Svcs, void *Handle_v)
     }
 
     free(Handle);
+    nvtxRangePop();
     return Ret;
 }
 
