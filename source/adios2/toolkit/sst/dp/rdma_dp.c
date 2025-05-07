@@ -1895,9 +1895,15 @@ static ssize_t PostRead(CP_Services Svcs, Rdma_RS_Stream RS_Stream, int Rank, lo
                   "Remote read target is Rank %d (Offset = %zi, Length = %zi)\n", Rank, Offset,
                   Length);
 
+    size_t const max_str_len = 512;
+    char formatted_notice[max_str_len];
+    size_t attempt = 0;
     do
     {
-        nvtxRangePush("fi_read (PostRead)");
+        snprintf(formatted_notice, max_str_len - 1, "fi_read (%lu, %zu, attempt %zu, PostRead)",
+                 SrcAddress, Length, attempt);
+        ++attempt;
+        nvtxRangePush(formatted_notice);
         rc = fi_read(Fabric->signal, Buffer, Length, LocalDesc, SrcAddress, (uint64_t)Addr,
                      Info->Key, ret);
         if (Fabric->cq_manual_progress && Fabric->pthread_id == 0)
