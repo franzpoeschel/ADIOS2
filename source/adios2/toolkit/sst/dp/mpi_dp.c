@@ -517,7 +517,6 @@ static void *MpiReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int Ra
  */
 static int MpiWaitForCompletion(CP_Services Svcs, void *Handle_v)
 {
-    nvtxRangePush("MpiWaitForCompletion");
     const MpiCompletionHandle Handle = (MpiCompletionHandle)Handle_v;
     const struct _MpiReadRequestMsg Request = Handle->ReadRequest;
     int Ret = 0;
@@ -531,6 +530,7 @@ static int MpiWaitForCompletion(CP_Services Svcs, void *Handle_v)
     // If possible, read locally
     if (Handle->CommType == MPI_DP_LOCAL)
     {
+        nvtxRangePush("MpiWaitForCompletion LOCAL");
         const MpiStreamWR StreamWR = ((MpiStreamWPR)Request.StreamWPR)->StreamWR;
         char *LoadedBuffer = LoadTimeStep(StreamWR, Request.TimeStep);
         if (LoadedBuffer)
@@ -542,6 +542,7 @@ static int MpiWaitForCompletion(CP_Services Svcs, void *Handle_v)
     // Otherwise, wait for remote read
     else
     {
+        nvtxRangePush("MpiWaitForCompletion REMOTE");
         Ret = CMCondition_wait(Handle->cm, Request.NotifyCondition);
     }
 
