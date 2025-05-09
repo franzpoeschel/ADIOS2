@@ -355,7 +355,9 @@ if(ADIOS2_HAVE_SST)
     engine/sst/SstWriter.cpp
     engine/sst/SstParamParser.cpp
   )
+  find_package(OpenMP REQUIRED)
   target_link_libraries(adios2_core PRIVATE sst)
+  target_link_libraries(adios2_core PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
 if(ADIOS2_HAVE_DataSpaces)

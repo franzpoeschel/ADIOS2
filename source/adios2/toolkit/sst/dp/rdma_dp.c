@@ -2011,6 +2011,7 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
                               "handle pending value.\n",
                               RS_Stream->Rank, Rank, WRidx, BufferSlot);
             }
+            pthread_mutex_unlock(&ts_mutex);
         }
         else
         {
@@ -2019,6 +2020,7 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
                           "(Offset = %zi, Length = %zi \n",
                           Rank, Offset, Length);
             ret->PreloadBuffer = NULL;
+            pthread_mutex_unlock(&ts_mutex);
             if (PostRead(Svcs, RS_Stream, Rank, Timestep, Offset, Length, Buffer, Info, &ret) != 0)
             {
                 free(ret);
@@ -2030,6 +2032,7 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
     else
     {
         LogRequest(Svcs, RS_Stream, Rank, Timestep, Offset, Length);
+        pthread_mutex_unlock(&ts_mutex);
         if (PostRead(Svcs, RS_Stream, Rank, Timestep, Offset, Length, Buffer, Info, &ret) != 0)
         {
             free(ret);
@@ -2038,7 +2041,6 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
         }
         ret->PreloadBuffer = NULL;
     }
-    pthread_mutex_unlock(&ts_mutex);
 
     ret->CPStream = RS_Stream;
     ret->Buffer = Buffer;
