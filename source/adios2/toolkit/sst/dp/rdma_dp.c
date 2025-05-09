@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <omp.h>
 
 #include "adios2/common/ADIOSConfig.h"
 #include <atl.h>
@@ -1898,6 +1899,7 @@ static ssize_t PostRead(CP_Services Svcs, Rdma_RS_Stream RS_Stream, int Rank, lo
     size_t const max_str_len = 512;
     char formatted_notice[max_str_len];
     size_t attempt = 0;
+    printf("[%d/%d]\t\tSTART fi_read\n", omp_get_thread_num(), omp_get_num_threads());
     do
     {
         snprintf(formatted_notice, max_str_len - 1, "fi_read (%lu, %zu, attempt %zu, PostRead)",
@@ -1918,6 +1920,7 @@ static ssize_t PostRead(CP_Services Svcs, Rdma_RS_Stream RS_Stream, int Rank, lo
         }
         nvtxRangePop();
     } while (rc == -EAGAIN);
+    printf("[%d/%d]\t\tEND fi_read\n", omp_get_thread_num(), omp_get_num_threads());
 
     if (rc != 0)
     {

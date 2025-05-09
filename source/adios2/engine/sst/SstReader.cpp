@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <omp.h>
 
 #include "adios2/helper/adiosComm.h"
 #include "adios2/helper/adiosFunctions.h"
@@ -690,6 +691,7 @@ void SstReader::BP5PerformGets()
     auto end = ReadRequests.cend();
 
     auto enqueue_next = [this](format::BP5Deserializer::ReadRequest const &Req) -> void * {
+        printf("[%d/%d]\tSTART enqueue_next\n", omp_get_thread_num(), omp_get_num_threads());
         void *dp_info = NULL;
         if (m_CurrentStepMetaData->DP_TimestepInfo)
         {
@@ -697,6 +699,7 @@ void SstReader::BP5PerformGets()
         }
         auto *ret = SstReadRemoteMemory(m_Input, (int)Req.WriterRank, Req.Timestep, Req.StartOffset,
                                         Req.ReadLength, Req.DestinationAddr, dp_info);
+        printf("[%d/%d]\tEND enqueue_next\n", omp_get_thread_num(), omp_get_num_threads());
         return ret;
     };
 
