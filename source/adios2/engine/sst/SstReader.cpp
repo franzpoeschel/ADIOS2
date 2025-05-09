@@ -12,6 +12,7 @@
 #include "SstParamParser.h"
 #include "SstReader.tcc"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -684,45 +685,45 @@ void SstReader::BP5PerformGets()
     std::vector<void *> sstReadHandlers;
     std::vector<void *> nextSstReadHandlers;
     sstReadHandlers.reserve(BATCH_SIZE);
-    nextSstReadHandlers.reserve(BATCH_SIZE);
 
     auto iterator = ReadRequests.cbegin();
     auto end = ReadRequests.cend();
 
-    auto enqueue_next = [&](std::vector<void *> &sstReadHandlers_lambda) {
-        if (iterator == end)
-        {
-            return false;
-        }
-        auto const &Req = *iterator;
-
+    auto enqueue_next = [this](format::BP5Deserializer::ReadRequest const &Req) -> void * {
         void *dp_info = NULL;
         if (m_CurrentStepMetaData->DP_TimestepInfo)
         {
             dp_info = m_CurrentStepMetaData->DP_TimestepInfo[Req.WriterRank];
         }
-        auto ret = SstReadRemoteMemory(m_Input, (int)Req.WriterRank, Req.Timestep, Req.StartOffset,
-                                       Req.ReadLength, Req.DestinationAddr, dp_info);
-        sstReadHandlers_lambda.push_back(ret);
-        ++iterator;
-        return true;
+        auto *ret = SstReadRemoteMemory(m_Input, (int)Req.WriterRank, Req.Timestep, Req.StartOffset,
+                                        Req.ReadLength, Req.DestinationAddr, dp_info);
+        return ret;
     };
 
-    // Initiate request queue with first BATCH_SIZE requests
-    for (size_t i = 0; i < BATCH_SIZE; ++i)
-    {
-        if (!enqueue_next(sstReadHandlers))
+    auto enqueue_next_batch = [&](std::vector<void *> &sstReadHandlers_lambda) {
+        // Initiate request queue with first BATCH_SIZE requests
+        size_t loop_size = std::min(BATCH_SIZE, static_cast<size_t>(end - iterator));
+        sstReadHandlers.resize(loop_size);
+#pragma omp parallel
+#pragma omp single
+#pragma omp taskloop
+        for (size_t i = 0; i < loop_size; ++i)
         {
-            break;
+            sstReadHandlers[i] = enqueue_next((&*iterator)[i]);
         }
-    }
+        for (size_t i = 0; i < loop_size; ++i)
+        {
+            ++iterator;
+        }
+    };
+
+    enqueue_next_batch(sstReadHandlers);
 
     // Drain current request queue
     // For each fulfilled request, enqueue the next into the next queue
     // poor man's asynchrony
     while (!sstReadHandlers.empty())
     {
-        nextSstReadHandlers.clear();
         for (const auto &i : sstReadHandlers)
         {
             if (SstWaitForCompletion(m_Input, i) != SstSuccess)
@@ -730,9 +731,8 @@ void SstReader::BP5PerformGets()
                 helper::Throw<std::runtime_error>("Engine", "SstReader", "BP5PerformGets",
                                                   "Writer failed before returning data");
             }
-            enqueue_next(nextSstReadHandlers);
         }
-        sstReadHandlers.swap(nextSstReadHandlers);
+        enqueue_next_batch(sstReadHandlers);
     }
 
     m_BP5Deserializer->FinalizeGets(ReadRequests);
