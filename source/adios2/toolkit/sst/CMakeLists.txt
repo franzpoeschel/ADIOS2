@@ -34,6 +34,8 @@ if(ADIOS2_SST_HAVE_UCX)
                   PRIVATE ucx::ucx)
 endif()
 
+target_sources(sst PRIVATE dp/parallel_dp.c)
+
 if(ADIOS2_HAVE_DAOS)
   target_sources(sst PRIVATE dp/daos_dp.c)
   target_link_libraries(sst PRIVATE DAOS::DAOS)
