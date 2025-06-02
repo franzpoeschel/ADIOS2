@@ -37,6 +37,7 @@ extern CP_DP_Interface LoadMpiDP();
 extern CP_DP_Interface LoadMercuryDP();
 #endif /* SST_HAVE_MERCURY */
 extern CP_DP_Interface LoadEVpathDP();
+extern CP_DP_Interface LoadParallelDP();
 
 typedef struct _DPElement
 {
@@ -86,6 +87,7 @@ CP_DP_Interface SelectDP(CP_Services Svcs, void *CP_Stream, struct _SstParams *P
         Required = NULL;
     }
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadEVpathDP(), "evpath", Params);
+    List = AddDPPossibility(Svcs, CP_Stream, List, LoadParallelDP(), "parallel", Params);
 #ifdef SST_HAVE_LIBFABRIC
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadRdmaDP(), "rdma", Params);
 #endif /* SST_HAVE_LIBFABRIC */
