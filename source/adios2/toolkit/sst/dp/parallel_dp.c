@@ -6,6 +6,16 @@
 
 #include "sys/types.h"
 
+extern CP_DP_Interface LoadRdmaDP();
+
+typedef struct _opaque_sub_dp_list {
+    void**list;
+    size_t num;
+} opaque_sub_dp_list;
+
+typedef opaque_sub_dp_list ParallelReaderContactInfo;
+typedef opaque_sub_dp_list ParallelWriterContactInfo;
+
 struct fabric_state
 {
     struct _CP_DP_Interface *list_dps;
@@ -14,42 +24,40 @@ struct fabric_state
 
 typedef struct _Parallel_WS_Stream
 {
+    struct _CP_DP_Interface *sub_interface;
     DP_WS_Stream *list_substreams;
     size_t num_substreams;
 } Parallel_WS_Stream;
 
+typedef struct _Parallel_RS_Stream
+{
+    struct _CP_DP_Interface *sub_interface;
+    DP_WS_Stream *list_substreams;
+    size_t num_substreams;
+} Parallel_RS_Stream;
+
 static struct _CP_DP_Interface ParallelDPInterface = {0};
 
-typedef struct _ParallelReaderContactInfo
-{
-    void *RS_Stream;
-} *ParallelReaderContactInfo;
 
 static FMField ParallelReaderContactList[] = {
-    {"reader_ID", "integer", sizeof(void *), FMOffset(ParallelReaderContactInfo, RS_Stream)},
+    //{"reader_ID", "integer", sizeof(void *), FMOffset(ParallelReaderContactInfo, RS_Stream)},
     {NULL, NULL, 0, 0}};
 
 static FMStructDescRec ParallelReaderContactStructs[] = {
-    {"ParallelReaderContactInfo", ParallelReaderContactList,
-     sizeof(struct _ParallelReaderContactInfo), NULL},
+    // {"ParallelReaderContactInfo", ParallelReaderContactList,
+    // sizeof(struct _ParallelReaderContactInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
-typedef struct _ParallelWriterContactInfo
-{
-    void *WS_Stream;
-    size_t Length;
-    void *Address;
-} *ParallelWriterContactInfo;
 
 static FMField ParallelWriterContactList[] = {
-    {"writer_ID", "integer", sizeof(void *), FMOffset(ParallelWriterContactInfo, WS_Stream)},
-    {"Length", "integer", sizeof(int), FMOffset(ParallelWriterContactInfo, Length)},
-    {"Address", "integer[Length]", sizeof(char), FMOffset(ParallelWriterContactInfo, Address)},
+    // {"writer_ID", "integer", sizeof(void *), FMOffset(ParallelWriterContactInfo, WS_Stream)},
+    // {"Length", "integer", sizeof(int), FMOffset(ParallelWriterContactInfo, Length)},
+    // {"Address", "integer[Length]", sizeof(char), FMOffset(ParallelWriterContactInfo, Address)},
     {NULL, NULL, 0, 0}};
 
 static FMStructDescRec ParallelWriterContactStructs[] = {
     {"ParallelWriterContactInfo", ParallelWriterContactList,
-     sizeof(struct _ParallelWriterContactInfo), NULL},
+     sizeof(ParallelWriterContactInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
 typedef struct _ParallelBufferHandle
@@ -71,12 +79,23 @@ static FMStructDescRec ParallelBufferHandleStructs[] = {
 
 ///////////////////////////////////////////////
 
+#define PARALLEL_FACTOR 4
+
 static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
                                        void **ReaderContactInfoPtr, struct _SstParams *Params,
                                        attr_list WriterContact, SstStats Stats)
 {
     printf("InitReader\n");
-    return NULL;
+    Parallel_WS_Stream *res = malloc(sizeof(Parallel_WS_Stream));
+    res->sub_interface = LoadRdmaDP();
+    res->num_substreams = PARALLEL_FACTOR;
+    res->list_substreams = malloc(res->num_substreams * sizeof(*res->list_substreams));
+    for (size_t i = 0; i < res->num_substreams; ++i)
+    {
+        res->list_substreams[i] =
+            res->sub_interface->initReader(Svcs, CP_Stream, NULL, Params, WriterContact, Stats);
+    }
+    return res;
 }
 
 static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params,
