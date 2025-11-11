@@ -1,120 +1,79 @@
-/*
- * Distributed under the OSI-approved Apache License, Version 2.0.  See
- * accompanying file Copyright.txt for details.
- *
- * bpWriter.cpp: Simple self-descriptive example of how to write a variable
- * to a BP File that lives in several MPI processes.
- *
- *  Created on: Feb 16, 2017
- *      Author: William F Godoy godoywf@ornl.gov
- */
-
-#include <ios>       //std::ios_base::failure
-#include <iostream>  //std::cout
-#include <stdexcept> //std::invalid_argument std::exception
+#if true || ADIOS2_USE_MPI
+#include <adios2.h>
+#include <string>
 #include <vector>
 
-#include <adios2.h>
-#if ADIOS2_USE_MPI
 #include <mpi.h>
-#endif
 
 int main(int argc, char *argv[])
 {
-    int rank, size;
-#if ADIOS2_USE_MPI
-    int provided;
+    MPI_Init(&argc, &argv);
+    adios2::ADIOS adios(MPI_COMM_WORLD);
+    adios2::IO io = adios.DeclareIO("parallel_write_zero_extent");
 
-    // MPI_THREAD_MULTIPLE is only required if you enable the SST MPI_DP
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+    int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-#else
-    rank = 0;
-    size = 1;
-#endif
 
-    /** Application variable */
-    std::vector<float> myFloats = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-    std::vector<int> myInts = {0, -1, -2, -3, -4, -5, -6, -7, -8, -9};
-    const std::size_t Nx = myFloats.size();
+    // --- File creation
+    adios2::Engine writer = io.Open("parallel_write_zero_extent.bp", adios2::Mode::Write);
+    io.DefineAttribute<unsigned char>("__openPMD_internal/useModifiableAttributes", 1);
 
-    const std::string myString("Hello Variable String from rank " + std::to_string(rank));
-
-    try
+    for (size_t i = 0; i < 10; ++i)
     {
-        /** ADIOS class factory of IO class objects */
-#if ADIOS2_USE_MPI
-        adios2::ADIOS adios(MPI_COMM_WORLD);
-#else
-        adios2::ADIOS adios;
-#endif
+        // --- Begin Step
+        writer.BeginStep();
+        io.DefineAttribute<double>("/data/dt", 0.1, "", "/", true);
+        io.DefineAttribute<double>("/data/time", 1.23, "", "/", true);
+        io.DefineAttribute<double>("/data/timeUnitSI", 1.0, "", "/", true);
 
-        /*** IO class object: settings and factory of Settings: Variables,
-         * Parameters, Transports, and Execution: Engines */
-        adios2::IO bpIO = adios.DeclareIO("BPFile_N2N");
-
-        /** global array : name, { shape (total) }, { start (local) }, {
-         * count
-         * (local) }, all are constant dimensions */
-        adios2::Variable<float> bpFloats = bpIO.DefineVariable<float>(
-            "bpFloats", {size * Nx}, {rank * Nx}, {Nx}, adios2::ConstantDims);
-
-        adios2::Variable<int> bpInts = bpIO.DefineVariable<int>("bpInts", {size * Nx}, {rank * Nx},
-                                                                {Nx}, adios2::ConstantDims);
-
-        adios2::Variable<std::string> bpString = bpIO.DefineVariable<std::string>("bpString");
-        (void)bpString; // For the sake of the example we create an unused
-                        // variable
-
-        std::string filename = "myVector_cpp.bp";
-        /** Engine derived class, spawned to start IO operations */
-        adios2::Engine bpWriter = bpIO.Open(filename, adios2::Mode::Write);
-
-        bpWriter.BeginStep();
-        /** Put variables for buffering, template type is optional */
-        bpWriter.Put(bpFloats, myFloats.data());
-        bpWriter.Put(bpInts, myInts.data());
-        // bpWriter.Put(bpString, myString);
-        bpWriter.EndStep();
-
-        /** Create bp file, engine becomes unreachable after this*/
-        bpWriter.Close();
-        if (rank == 0)
+        if (i == 0)
         {
-            std::cout << "Wrote file " << filename
-                      << " to disk. It can now be read by running "
-                         "./bin/adios2_hello_bpReader.\n";
+            // --- Top-level metadata
+            io.DefineAttribute<std::string>("particlesPath", "particles/", "", "/", true);
+            io.DefineAttribute<std::string>("basePath", "/data/", "", "/", true);
+            io.DefineAttribute<std::string>("date", "2025-11-11", "", "/", true);
+            io.DefineAttribute<std::string>("iterationEncoding", "groupBased", "", "/", true);
+            io.DefineAttribute<std::string>("iterationFormat", "%T", "", "/", true);
+            io.DefineAttribute<std::string>("openPMD", "1.1.0", "", "/", true);
+            io.DefineAttribute<unsigned int>("openPMDextension", 1, "", "/", true);
+            io.DefineAttribute<std::string>("software", "ADIOS2-test", "", "/", true);
+            io.DefineAttribute<std::string>("softwareVersion", "1.0", "", "/", true);
         }
-    }
-    catch (std::invalid_argument &e)
-    {
-        std::cerr << "Invalid argument exception: " << e.what() << "\n";
-#if ADIOS2_USE_MPI
-        std::cerr << "STOPPING PROGRAM from rank " << rank << "\n";
-        MPI_Abort(MPI_COMM_WORLD, 1);
-#endif
-    }
-    catch (std::ios_base::failure &e)
-    {
-        std::cerr << "IO System base failure exception: " << e.what() << "\n";
-#if ADIOS2_USE_MPI
-        std::cerr << "STOPPING PROGRAM from rank " << rank << "\n";
-        MPI_Abort(MPI_COMM_WORLD, 1);
-#endif
-    }
-    catch (std::exception &e)
-    {
-        std::cerr << "Exception: " << e.what() << "\n";
-#if ADIOS2_USE_MPI
-        std::cerr << "STOPPING PROGRAM from rank " << rank << "\n";
-        MPI_Abort(MPI_COMM_WORLD, 1);
-#endif
+
+        io.DefineAttribute<std::string>("/data/yolo", "yes", "", "/", true);
+
+        if (rank > 0)
+        {
+            auto varX =
+                i == 0 ? io.DefineVariable<double>("/data/particles/e/position/x", {1}, {0}, {1})
+                       : io.InquireVariable<double>("/data/particles/e/position/x");
+            // --- Example variable creation (extent = [1])
+            std::vector<double> x = {42.0};
+
+            writer.Put(varX, x.data());
+
+            // --- Example attributes
+
+            io.DefineAttribute<double>("/data/particles/e/position/unitSI", 1.0, "", "/", true);
+            io.DefineAttribute<float>("/data/particles/e/position/timeOffset", 0.0f, "", "/", true);
+            std::vector<double> dims = {1, 0, 0, 0, 0, 0, 0};
+            io.DefineAttribute<double>("/data/particles/e/position/unitDimension", dims.data(),
+                                       dims.size(), "", "/", true);
+
+            // --- Write data
+            writer.Put(varX, x.data());
+        }
+        std::vector<unsigned long long> snapshot = {static_cast<unsigned long long>(i)};
+        io.DefineAttribute<unsigned long long>("snapshot", snapshot.data(), snapshot.size(), "",
+                                               "/", true);
+
+        writer.EndStep();
     }
 
-#if ADIOS2_USE_MPI
+    writer.Close();
     MPI_Finalize();
-#endif
-
     return 0;
 }
+#else
+int main() {}
+#endif
