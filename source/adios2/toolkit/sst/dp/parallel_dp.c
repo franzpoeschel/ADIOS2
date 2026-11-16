@@ -39,23 +39,19 @@ enum ParallelSubDPScope
 typedef struct _ParallelSubDPConfig
 {
     CP_DP_Interface Interface;
-    const char *Name;
+    char *Name;
     enum ParallelSubDPScope Scope;
 } *ParallelSubDPConfig;
 
-typedef struct _ParallelGlobalInfo
+typedef struct _ParallelConfig
 {
-    int Attempted;
     int NumSubDPs;
     struct _ParallelSubDPConfig SubDPs[PARALLEL_MAX_SUB_DPS];
-    FMContext FM;
     FFSContext FFS;
     FMFormat ReaderContactFormats[PARALLEL_MAX_SUB_DPS];
     FMFormat WriterContactFormats[PARALLEL_MAX_SUB_DPS];
     FMFormat TimestepInfoFormats[PARALLEL_MAX_SUB_DPS];
-} *ParallelGlobalInfo;
-
-static struct _ParallelGlobalInfo ParallelGlobal = {0};
+} *ParallelConfig;
 
 typedef struct _ParallelSubDPInfo
 {
@@ -100,6 +96,7 @@ typedef struct _Parallel_RS_Stream
 {
     CP_Services Svcs;
     void *CP_Stream;
+    ParallelConfig Config;
     char *Hostname;
     int Rank;
     int WriterCohortSize;
@@ -113,11 +110,13 @@ typedef struct _Parallel_WS_Stream
 {
     CP_Services Svcs;
     void *CP_Stream;
+    ParallelConfig Config;
     int Rank;
     char *Hostname;
     size_t NumSubDPs;
     struct _ParallelSubDPState *SubDPs;
     ParallelTimestepEntry Timesteps;
+    int HasTimestepInfo;
 } *Parallel_WS_Stream;
 
 typedef struct _Parallel_WSR_Stream
@@ -281,27 +280,39 @@ static void ParallelFreeTimestepInfo(ParallelTimestepInfo Info)
     free(Info);
 }
 
-static void ParallelEnsureConfig(CP_Services Svcs, void *CP_Stream)
+static void ParallelConfigDestroy(ParallelConfig Config)
 {
-    if (ParallelGlobal.Attempted)
+    if (!Config)
     {
         return;
     }
-    ParallelGlobal.Attempted = 1;
-
-    const char *Config = getenv("SST_PARALLEL_DP");
-    if (!Config || !Config[0])
+    for (int i = 0; i < Config->NumSubDPs; i++)
     {
-        Config = getenv("SST_VIRTUAL_DP");
+        free(Config->SubDPs[i].Name);
     }
-    if (!Config || !Config[0])
+    if (Config->FFS)
     {
-        return;
+        free_FFSContext(Config->FFS);
+    }
+    free(Config);
+}
+
+static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream, int RegisterFormats)
+{
+    const char *ConfigString = getenv("SST_PARALLEL_DP");
+    if (!ConfigString || !ConfigString[0])
+    {
+        ConfigString = getenv("SST_VIRTUAL_DP");
+    }
+    if (!ConfigString || !ConfigString[0])
+    {
+        return NULL;
     }
 
-    char *Copy = strdup(Config);
+    ParallelConfig Config = calloc(1, sizeof(*Config));
+    char *Copy = strdup(ConfigString);
     char *Cursor = Copy;
-    while (Cursor && *Cursor && ParallelGlobal.NumSubDPs < PARALLEL_MAX_SUB_DPS)
+    while (Cursor && *Cursor && Config->NumSubDPs < PARALLEL_MAX_SUB_DPS)
     {
         char *Comma = strchr(Cursor, ',');
         if (Comma)
@@ -327,9 +338,9 @@ static void ParallelEnsureConfig(CP_Services Svcs, void *CP_Stream)
             if (Interface)
             {
                 int Duplicate = 0;
-                for (int i = 0; i < ParallelGlobal.NumSubDPs; i++)
+                for (int i = 0; i < Config->NumSubDPs; i++)
                 {
-                    if (ParallelGlobal.SubDPs[i].Interface == Interface)
+                    if (Config->SubDPs[i].Interface == Interface)
                     {
                         Duplicate = 1;
                         break;
@@ -337,10 +348,10 @@ static void ParallelEnsureConfig(CP_Services Svcs, void *CP_Stream)
                 }
                 if (!Duplicate)
                 {
-                    int Index = ParallelGlobal.NumSubDPs++;
-                    ParallelGlobal.SubDPs[Index].Interface = Interface;
-                    ParallelGlobal.SubDPs[Index].Name = strdup(Entry);
-                    ParallelGlobal.SubDPs[Index].Scope = ParallelParseScope(Scope);
+                    int Index = Config->NumSubDPs++;
+                    Config->SubDPs[Index].Interface = Interface;
+                    Config->SubDPs[Index].Name = strdup(Entry);
+                    Config->SubDPs[Index].Scope = ParallelParseScope(Scope);
                 }
                 else if (Svcs)
                 {
@@ -359,35 +370,39 @@ static void ParallelEnsureConfig(CP_Services Svcs, void *CP_Stream)
     }
     free(Copy);
 
-    if (ParallelGlobal.NumSubDPs == 0)
+    if (Config->NumSubDPs == 0)
     {
-        return;
+        ParallelConfigDestroy(Config);
+        return NULL;
     }
 
-    ParallelGlobal.FM = create_FMcontext();
-    ParallelGlobal.FFS = create_FFSContext_FM(ParallelGlobal.FM);
-    for (int i = 0; i < ParallelGlobal.NumSubDPs; i++)
+    if (RegisterFormats)
     {
-        CP_DP_Interface Interface = ParallelGlobal.SubDPs[i].Interface;
-        if (Interface->ReaderContactFormats)
+        Config->FFS = create_FFSContext();
+        for (int i = 0; i < Config->NumSubDPs; i++)
         {
-            FFSTypeHandle Handle =
-                FFSset_fixed_target(ParallelGlobal.FFS, Interface->ReaderContactFormats);
-            ParallelGlobal.ReaderContactFormats[i] = Handle ? FMFormat_of_original(Handle) : NULL;
-        }
-        if (Interface->WriterContactFormats)
-        {
-            FFSTypeHandle Handle =
-                FFSset_fixed_target(ParallelGlobal.FFS, Interface->WriterContactFormats);
-            ParallelGlobal.WriterContactFormats[i] = Handle ? FMFormat_of_original(Handle) : NULL;
-        }
-        if (Interface->TimestepInfoFormats)
-        {
-            FFSTypeHandle Handle =
-                FFSset_fixed_target(ParallelGlobal.FFS, Interface->TimestepInfoFormats);
-            ParallelGlobal.TimestepInfoFormats[i] = Handle ? FMFormat_of_original(Handle) : NULL;
+            CP_DP_Interface Interface = Config->SubDPs[i].Interface;
+            if (Interface->ReaderContactFormats)
+            {
+                FFSTypeHandle Handle =
+                    FFSset_fixed_target(Config->FFS, Interface->ReaderContactFormats);
+                Config->ReaderContactFormats[i] = Handle ? FMFormat_of_original(Handle) : NULL;
+            }
+            if (Interface->WriterContactFormats)
+            {
+                FFSTypeHandle Handle =
+                    FFSset_fixed_target(Config->FFS, Interface->WriterContactFormats);
+                Config->WriterContactFormats[i] = Handle ? FMFormat_of_original(Handle) : NULL;
+            }
+            if (Interface->TimestepInfoFormats)
+            {
+                FFSTypeHandle Handle =
+                    FFSset_fixed_target(Config->FFS, Interface->TimestepInfoFormats);
+                Config->TimestepInfoFormats[i] = Handle ? FMFormat_of_original(Handle) : NULL;
+            }
         }
     }
+    return Config;
 }
 
 static FMField ParallelSubDPInfoList[] = {
@@ -482,16 +497,18 @@ static void *ParallelDecodeSubInfoReal(FFSContext Context, ParallelSubDPInfo Inf
     return Buffer;
 }
 
-static ParallelContactInfo ParallelMakeContact(FMFormat *Formats, void **ContactInfo,
-                                               int *Available, const char *Hostname, int NumSubDPs)
+static ParallelContactInfo ParallelMakeContact(ParallelConfig Config, FMFormat *Formats,
+                                               void **ContactInfo, int *Available,
+                                               const char *Hostname)
 {
+    int NumSubDPs = Config->NumSubDPs;
     ParallelContactInfo Contact = calloc(1, sizeof(*Contact));
     Contact->NumSubDPs = NumSubDPs;
     Contact->Hostname = strdup(Hostname ? Hostname : "unknown");
     Contact->SubInfo = calloc(NumSubDPs, sizeof(struct _ParallelSubDPInfo));
     for (int i = 0; i < NumSubDPs; i++)
     {
-        Contact->SubInfo[i].Name = strdup(ParallelGlobal.SubDPs[i].Name);
+        Contact->SubInfo[i].Name = strdup(Config->SubDPs[i].Name);
         Contact->SubInfo[i].Available = Available[i];
         if (Available[i])
         {
@@ -563,8 +580,8 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
                                        void **ReaderContactInfoPtr, struct _SstParams *Params,
                                        attr_list WriterContact, SstStats Stats)
 {
-    ParallelEnsureConfig(Svcs, CP_Stream);
-    if (ParallelGlobal.NumSubDPs == 0)
+    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, 1);
+    if (!Config)
     {
         return NULL;
     }
@@ -572,8 +589,9 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
     Parallel_RS_Stream Stream = calloc(1, sizeof(*Stream));
     Stream->Svcs = Svcs;
     Stream->CP_Stream = CP_Stream;
+    Stream->Config = Config;
     Stream->Hostname = ParallelDupHostname();
-    Stream->NumSubDPs = (size_t)ParallelGlobal.NumSubDPs;
+    Stream->NumSubDPs = (size_t)Config->NumSubDPs;
     Stream->SubDPs = calloc(Stream->NumSubDPs, sizeof(*Stream->SubDPs));
 
     void **ContactInfo = calloc(Stream->NumSubDPs, sizeof(*ContactInfo));
@@ -583,9 +601,9 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
         ParallelSubDPState SubDP = &Stream->SubDPs[i];
-        SubDP->Interface = ParallelGlobal.SubDPs[i].Interface;
-        SubDP->Name = ParallelGlobal.SubDPs[i].Name;
-        SubDP->Scope = ParallelGlobal.SubDPs[i].Scope;
+        SubDP->Interface = Config->SubDPs[i].Interface;
+        SubDP->Name = Config->SubDPs[i].Name;
+        SubDP->Scope = Config->SubDPs[i].Scope;
         if (SubDP->Interface->initReader)
         {
             SubDP->RS_Stream = SubDP->Interface->initReader(Svcs, CP_Stream, &ContactInfo[i],
@@ -608,12 +626,13 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
         free(Available);
         free(Stream->SubDPs);
         free(Stream->Hostname);
+        ParallelConfigDestroy(Config);
         free(Stream);
         return NULL;
     }
 
-    Stream->MyContact = ParallelMakeContact(ParallelGlobal.ReaderContactFormats, ContactInfo,
-                                            Available, Stream->Hostname, (int)Stream->NumSubDPs);
+    Stream->MyContact = ParallelMakeContact(Config, Config->ReaderContactFormats, ContactInfo,
+                                            Available, Stream->Hostname);
     free(ContactInfo);
     free(Available);
 
@@ -644,6 +663,7 @@ static void ParallelDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
         free(Stream->WriterHostnames);
     }
     ParallelFreeContact(Stream->MyContact);
+    ParallelConfigDestroy(Stream->Config);
     free(Stream->SubDPs);
     free(Stream->Hostname);
     free(Stream);
@@ -652,8 +672,8 @@ static void ParallelDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
 static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params,
                                        attr_list DPAttrs, SstStats Stats)
 {
-    ParallelEnsureConfig(Svcs, CP_Stream);
-    if (ParallelGlobal.NumSubDPs == 0)
+    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, 1);
+    if (!Config)
     {
         return NULL;
     }
@@ -661,17 +681,18 @@ static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct
     Parallel_WS_Stream Stream = calloc(1, sizeof(*Stream));
     Stream->Svcs = Svcs;
     Stream->CP_Stream = CP_Stream;
+    Stream->Config = Config;
     Stream->Hostname = ParallelDupHostname();
-    Stream->NumSubDPs = (size_t)ParallelGlobal.NumSubDPs;
+    Stream->NumSubDPs = (size_t)Config->NumSubDPs;
     Stream->SubDPs = calloc(Stream->NumSubDPs, sizeof(*Stream->SubDPs));
 
     int NumAvailable = 0;
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
         ParallelSubDPState SubDP = &Stream->SubDPs[i];
-        SubDP->Interface = ParallelGlobal.SubDPs[i].Interface;
-        SubDP->Name = ParallelGlobal.SubDPs[i].Name;
-        SubDP->Scope = ParallelGlobal.SubDPs[i].Scope;
+        SubDP->Interface = Config->SubDPs[i].Interface;
+        SubDP->Name = Config->SubDPs[i].Name;
+        SubDP->Scope = Config->SubDPs[i].Scope;
         if (SubDP->Interface->initWriter)
         {
             SubDP->WS_Stream =
@@ -681,6 +702,10 @@ static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct
         {
             SubDP->Ready = 1;
             NumAvailable++;
+            if (SubDP->Interface->TimestepInfoFormats)
+            {
+                Stream->HasTimestepInfo = 1;
+            }
         }
     }
 
@@ -691,6 +716,7 @@ static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct
                       "successfully on the writer side.\n");
         free(Stream->SubDPs);
         free(Stream->Hostname);
+        ParallelConfigDestroy(Config);
         free(Stream);
         return NULL;
     }
@@ -745,7 +771,7 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
             int Slot =
                 ParallelFindSlot(ReaderContact->SubInfo, ReaderContact->NumSubDPs, SubDP->Name);
             ReaderInfo[j] =
-                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &ReaderContact->SubInfo[Slot]);
+                ParallelDecodeSubInfoReal(Stream->Config->FFS, &ReaderContact->SubInfo[Slot]);
             if (ReaderContact->SubInfo[Slot].Length > 0 && !ReaderInfo[j])
             {
                 DecodeOk = 0;
@@ -780,8 +806,8 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
     }
 
     ParallelContactInfo Contact =
-        ParallelMakeContact(ParallelGlobal.WriterContactFormats, ContactInfo, Available,
-                            Stream->Hostname, (int)Stream->NumSubDPs);
+        ParallelMakeContact(Stream->Config, Stream->Config->WriterContactFormats, ContactInfo,
+                            Available, Stream->Hostname);
     free(ContactInfo);
     free(Available);
 
@@ -849,7 +875,7 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
             int Slot =
                 ParallelFindSlot(WriterContact->SubInfo, WriterContact->NumSubDPs, SubDP->Name);
             WriterInfo[j] =
-                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &WriterContact->SubInfo[Slot]);
+                ParallelDecodeSubInfoReal(Stream->Config->FFS, &WriterContact->SubInfo[Slot]);
             if (WriterContact->SubInfo[Slot].Length > 0 && !WriterInfo[j])
             {
                 DecodeOk = 0;
@@ -905,7 +931,7 @@ static void *ParallelReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v
                 continue;
             }
             SubTimestepInfo =
-                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &TimestepInfo->SubInfo[Slot]);
+                ParallelDecodeSubInfoReal(Stream->Config->FFS, &TimestepInfo->SubInfo[Slot]);
             if (!SubTimestepInfo)
             {
                 continue;
@@ -1044,14 +1070,21 @@ static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
                                     size_t Timestep, void **TimestepInfoPtr)
 {
     Parallel_WS_Stream Stream = (Parallel_WS_Stream)WS_Stream_v;
-    ParallelTimestepInfo Info = calloc(1, sizeof(*Info));
-    Info->NumSubInfos = (int)Stream->NumSubDPs;
-    Info->SubInfo = calloc(Stream->NumSubDPs, sizeof(struct _ParallelSubDPInfo));
+    ParallelTimestepInfo Info = NULL;
+    if (Stream->HasTimestepInfo)
+    {
+        Info = calloc(1, sizeof(*Info));
+        Info->NumSubInfos = (int)Stream->NumSubDPs;
+        Info->SubInfo = calloc(Stream->NumSubDPs, sizeof(struct _ParallelSubDPInfo));
+    }
 
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
         ParallelSubDPState SubDP = &Stream->SubDPs[i];
-        Info->SubInfo[i].Name = strdup(ParallelGlobal.SubDPs[i].Name);
+        if (Info)
+        {
+            Info->SubInfo[i].Name = strdup(Stream->Config->SubDPs[i].Name);
+        }
         if (!SubDP->Ready || !SubDP->WS_Stream || !SubDP->Interface->provideTimestep)
         {
             continue;
@@ -1059,22 +1092,29 @@ static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
         void *SubInfo = NULL;
         SubDP->Interface->provideTimestep(Svcs, SubDP->WS_Stream, Data, LocalMetadata, Timestep,
                                           &SubInfo);
-        ParallelEncodeSubInfo(ParallelGlobal.TimestepInfoFormats[i], SubInfo, &Info->SubInfo[i]);
-        if (SubDP->Interface->TimestepInfoFormats && Info->SubInfo[i].Length > 0)
+        if (Info)
         {
-            Info->SubInfo[i].Available = 1;
-        }
-        else if (!SubDP->Interface->TimestepInfoFormats)
-        {
-            Info->SubInfo[i].Available = 1;
+            ParallelEncodeSubInfo(Stream->Config->TimestepInfoFormats[i], SubInfo,
+                                  &Info->SubInfo[i]);
+            if (SubDP->Interface->TimestepInfoFormats && Info->SubInfo[i].Length > 0)
+            {
+                Info->SubInfo[i].Available = 1;
+            }
+            else if (!SubDP->Interface->TimestepInfoFormats)
+            {
+                Info->SubInfo[i].Available = 1;
+            }
         }
     }
 
-    ParallelTimestepEntry Entry = calloc(1, sizeof(*Entry));
-    Entry->Timestep = Timestep;
-    Entry->Info = Info;
-    Entry->Next = Stream->Timesteps;
-    Stream->Timesteps = Entry;
+    if (Info)
+    {
+        ParallelTimestepEntry Entry = calloc(1, sizeof(*Entry));
+        Entry->Timestep = Timestep;
+        Entry->Info = Info;
+        Entry->Next = Stream->Timesteps;
+        Stream->Timesteps = Entry;
+    }
 
     *TimestepInfoPtr = Info;
 }
@@ -1149,6 +1189,7 @@ static void ParallelDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
         free(Entry);
         Entry = Next;
     }
+    ParallelConfigDestroy(Stream->Config);
     free(Stream->SubDPs);
     free(Stream->Hostname);
     free(Stream);
@@ -1156,21 +1197,23 @@ static void ParallelDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
 
 static int ParallelGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params)
 {
-    ParallelEnsureConfig(Svcs, CP_Stream);
-    if (ParallelGlobal.NumSubDPs == 0)
+    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, 0);
+    if (!Config)
     {
         return -1;
     }
 
     int NumUsable = 0;
-    for (int i = 0; i < ParallelGlobal.NumSubDPs; i++)
+    for (int i = 0; i < Config->NumSubDPs; i++)
     {
-        CP_DP_Interface Interface = ParallelGlobal.SubDPs[i].Interface;
+        CP_DP_Interface Interface = Config->SubDPs[i].Interface;
         if (!Interface->getPriority || Interface->getPriority(Svcs, CP_Stream, Params) >= 0)
         {
             NumUsable++;
         }
     }
+    ParallelConfigDestroy(Config);
+
     if (NumUsable == 0)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
