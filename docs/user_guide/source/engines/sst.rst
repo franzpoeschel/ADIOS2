@@ -332,6 +332,12 @@ Additionally to the above controls, finetuning for technical parameters of the d
 
     * Tip: For restricting UCX to communication with shared memory only, set ``UCX_TLS=shm``. Progress threads must be used on the writer and reader side. It might be necessary to additionally set ``UCX_POSIX_USE_PROC_LINK=n`` on some systems.
 
+* By the **parallel data plane**:
+
+    * ``SST_PARALLEL_DP`` (alias ``SST_VIRTUAL_DP``) configures the parallel data plane as a comma-separated list of sub-dataplanes. Each entry is ``name`` or ``name@scope``, where scope is ``local``, ``remote``, or ``any`` (the default). For example, ``SST_PARALLEL_DP='ucx@local,rdma@remote'`` uses UCX for same-node peers and RDMA for peers on other nodes. The same setting must reach the writer and reader cohorts; sub-dataplanes are matched by name, so their order may differ.
+
+    * ``SST_PARALLEL_NODE_ID`` overrides the hostname used to decide whether a peer is local or remote. This is useful in containers where the hostname does not identify the physical node.
+
 * By the **Mercury data plane**:
 
     * ``SST_MERCURY_PROTOCOL``: Fallback for the ``MercuryProtocol`` engine parameter. If ``MercuryProtocol`` is not set on the engine, this environment variable is consulted before falling back to the default of ``tcp``. Useful when the same binary needs to run on different interconnects without rebuilding or re-parameterizing.

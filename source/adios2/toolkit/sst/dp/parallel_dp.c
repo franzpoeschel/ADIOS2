@@ -59,6 +59,7 @@ static struct _ParallelGlobalInfo ParallelGlobal = {0};
 
 typedef struct _ParallelSubDPInfo
 {
+    char *Name;
     int Length;
     int Available;
     char *Address;
@@ -253,6 +254,7 @@ static void ParallelFreeContact(ParallelContactInfo Contact)
     {
         for (int i = 0; i < Contact->NumSubDPs; i++)
         {
+            free(Contact->SubInfo[i].Name);
             free(Contact->SubInfo[i].Address);
         }
         free(Contact->SubInfo);
@@ -271,6 +273,7 @@ static void ParallelFreeTimestepInfo(ParallelTimestepInfo Info)
     {
         for (int i = 0; i < Info->NumSubInfos; i++)
         {
+            free(Info->SubInfo[i].Name);
             free(Info->SubInfo[i].Address);
         }
         free(Info->SubInfo);
@@ -388,6 +391,7 @@ static void ParallelEnsureConfig(CP_Services Svcs, void *CP_Stream)
 }
 
 static FMField ParallelSubDPInfoList[] = {
+    {"Name", "string", sizeof(char *), FMOffset(ParallelSubDPInfo, Name)},
     {"Length", "integer", sizeof(int), FMOffset(ParallelSubDPInfo, Length)},
     {"Available", "integer", sizeof(int), FMOffset(ParallelSubDPInfo, Available)},
     {"Address", "char[Length]", sizeof(char), FMOffset(ParallelSubDPInfo, Address)},
@@ -487,13 +491,34 @@ static ParallelContactInfo ParallelMakeContact(FMFormat *Formats, void **Contact
     Contact->SubInfo = calloc(NumSubDPs, sizeof(struct _ParallelSubDPInfo));
     for (int i = 0; i < NumSubDPs; i++)
     {
+        Contact->SubInfo[i].Name = strdup(ParallelGlobal.SubDPs[i].Name);
         Contact->SubInfo[i].Available = Available[i];
         if (Available[i])
         {
             ParallelEncodeSubInfo(Formats[i], ContactInfo[i], &Contact->SubInfo[i]);
+            if (Formats[i] && ContactInfo[i] && Contact->SubInfo[i].Length == 0)
+            {
+                Contact->SubInfo[i].Available = 0;
+            }
         }
     }
     return Contact;
+}
+
+static int ParallelFindSlot(ParallelSubDPInfo Slots, int NumSlots, const char *Name)
+{
+    if (!Slots || !Name)
+    {
+        return -1;
+    }
+    for (int i = 0; i < NumSlots; i++)
+    {
+        if (Slots[i].Name && strcmp(Slots[i].Name, Name) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
 }
 
 static int ParallelSameHost(Parallel_RS_Stream Stream, int Rank)
@@ -576,6 +601,9 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
 
     if (NumAvailable == 0)
     {
+        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                      "Parallel DataPlane: none of the configured sub-dataplanes initialized "
+                      "successfully on the reader side.\n");
         free(ContactInfo);
         free(Available);
         free(Stream->SubDPs);
@@ -658,6 +686,9 @@ static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct
 
     if (NumAvailable == 0)
     {
+        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                      "Parallel DataPlane: none of the configured sub-dataplanes initialized "
+                      "successfully on the writer side.\n");
         free(Stream->SubDPs);
         free(Stream->Hostname);
         free(Stream);
@@ -692,8 +723,10 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
         for (int j = 0; j < ReaderCohortSize; j++)
         {
             ParallelContactInfo ReaderContact = (ParallelContactInfo)ProvidedReaderInfo[j];
-            if (!ReaderContact || i >= (size_t)ReaderContact->NumSubDPs ||
-                !ReaderContact->SubInfo[i].Available)
+            int Slot = ReaderContact ? ParallelFindSlot(ReaderContact->SubInfo,
+                                                        ReaderContact->NumSubDPs, SubDP->Name)
+                                     : -1;
+            if (Slot < 0 || !ReaderContact->SubInfo[Slot].Available)
             {
                 AllAvailable = 0;
                 break;
@@ -705,11 +738,28 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
         }
 
         void **ReaderInfo = calloc(ReaderCohortSize, sizeof(*ReaderInfo));
+        int DecodeOk = 1;
         for (int j = 0; j < ReaderCohortSize; j++)
         {
             ParallelContactInfo ReaderContact = (ParallelContactInfo)ProvidedReaderInfo[j];
+            int Slot =
+                ParallelFindSlot(ReaderContact->SubInfo, ReaderContact->NumSubDPs, SubDP->Name);
             ReaderInfo[j] =
-                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &ReaderContact->SubInfo[i]);
+                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &ReaderContact->SubInfo[Slot]);
+            if (ReaderContact->SubInfo[Slot].Length > 0 && !ReaderInfo[j])
+            {
+                DecodeOk = 0;
+                break;
+            }
+        }
+        if (!DecodeOk)
+        {
+            for (int j = 0; j < ReaderCohortSize; j++)
+            {
+                free(ReaderInfo[j]);
+            }
+            free(ReaderInfo);
+            continue;
         }
 
         DP_WSR_Stream SubWSR = SubDP->Interface->initWriterPerReader(
@@ -777,8 +827,10 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
         for (int j = 0; j < WriterCohortSize; j++)
         {
             ParallelContactInfo WriterContact = (ParallelContactInfo)ProvidedWriterInfo[j];
-            if (!WriterContact || i >= (size_t)WriterContact->NumSubDPs ||
-                !WriterContact->SubInfo[i].Available)
+            int Slot = WriterContact ? ParallelFindSlot(WriterContact->SubInfo,
+                                                        WriterContact->NumSubDPs, SubDP->Name)
+                                     : -1;
+            if (Slot < 0 || !WriterContact->SubInfo[Slot].Available)
             {
                 AllAvailable = 0;
                 break;
@@ -790,11 +842,28 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
         }
 
         void **WriterInfo = calloc(WriterCohortSize, sizeof(*WriterInfo));
+        int DecodeOk = 1;
         for (int j = 0; j < WriterCohortSize; j++)
         {
             ParallelContactInfo WriterContact = (ParallelContactInfo)ProvidedWriterInfo[j];
+            int Slot =
+                ParallelFindSlot(WriterContact->SubInfo, WriterContact->NumSubDPs, SubDP->Name);
             WriterInfo[j] =
-                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &WriterContact->SubInfo[i]);
+                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &WriterContact->SubInfo[Slot]);
+            if (WriterContact->SubInfo[Slot].Length > 0 && !WriterInfo[j])
+            {
+                DecodeOk = 0;
+                break;
+            }
+        }
+        if (!DecodeOk)
+        {
+            for (int j = 0; j < WriterCohortSize; j++)
+            {
+                free(WriterInfo[j]);
+            }
+            free(WriterInfo);
+            continue;
         }
 
         SubDP->Interface->provideWriterDataToReader(Svcs, SubDP->RS_Stream, WriterCohortSize,
@@ -828,13 +897,15 @@ static void *ParallelReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v
         void *SubTimestepInfo = NULL;
         if (SubDP->Interface->TimestepInfoFormats)
         {
-            if (!TimestepInfo || i >= (size_t)TimestepInfo->NumSubInfos ||
-                !TimestepInfo->SubInfo[i].Available)
+            int Slot = TimestepInfo ? ParallelFindSlot(TimestepInfo->SubInfo,
+                                                       TimestepInfo->NumSubInfos, SubDP->Name)
+                                    : -1;
+            if (Slot < 0 || !TimestepInfo->SubInfo[Slot].Available)
             {
                 continue;
             }
             SubTimestepInfo =
-                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &TimestepInfo->SubInfo[i]);
+                ParallelDecodeSubInfoReal(ParallelGlobal.FFS, &TimestepInfo->SubInfo[Slot]);
             if (!SubTimestepInfo)
             {
                 continue;
@@ -955,6 +1026,19 @@ static void ParallelRSReadPatternLocked(CP_Services Svcs, DP_RS_Stream RS_Stream
     }
 }
 
+static void ParallelRSReleaseTimestep(CP_Services Svcs, DP_RS_Stream RS_Stream_v, size_t Timestep)
+{
+    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
+    for (size_t i = 0; i < Stream->NumSubDPs; i++)
+    {
+        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        if (SubDP->RS_Stream && SubDP->Interface->RSReleaseTimestep)
+        {
+            SubDP->Interface->RSReleaseTimestep(Svcs, SubDP->RS_Stream, Timestep);
+        }
+    }
+}
+
 static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
                                     struct _SstData *Data, struct _SstData *LocalMetadata,
                                     size_t Timestep, void **TimestepInfoPtr)
@@ -967,6 +1051,7 @@ static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
         ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        Info->SubInfo[i].Name = strdup(ParallelGlobal.SubDPs[i].Name);
         if (!SubDP->Ready || !SubDP->WS_Stream || !SubDP->Interface->provideTimestep)
         {
             continue;
@@ -974,12 +1059,15 @@ static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
         void *SubInfo = NULL;
         SubDP->Interface->provideTimestep(Svcs, SubDP->WS_Stream, Data, LocalMetadata, Timestep,
                                           &SubInfo);
-        if (SubDP->Interface->TimestepInfoFormats && !SubInfo)
-        {
-            continue;
-        }
-        Info->SubInfo[i].Available = 1;
         ParallelEncodeSubInfo(ParallelGlobal.TimestepInfoFormats[i], SubInfo, &Info->SubInfo[i]);
+        if (SubDP->Interface->TimestepInfoFormats && Info->SubInfo[i].Length > 0)
+        {
+            Info->SubInfo[i].Available = 1;
+        }
+        else if (!SubDP->Interface->TimestepInfoFormats)
+        {
+            Info->SubInfo[i].Available = 1;
+        }
     }
 
     ParallelTimestepEntry Entry = calloc(1, sizeof(*Entry));
@@ -1068,10 +1156,25 @@ static void ParallelDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
 
 static int ParallelGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params)
 {
-    (void)Params;
     ParallelEnsureConfig(Svcs, CP_Stream);
     if (ParallelGlobal.NumSubDPs == 0)
     {
+        return -1;
+    }
+
+    int NumUsable = 0;
+    for (int i = 0; i < ParallelGlobal.NumSubDPs; i++)
+    {
+        CP_DP_Interface Interface = ParallelGlobal.SubDPs[i].Interface;
+        if (!Interface->getPriority || Interface->getPriority(Svcs, CP_Stream, Params) >= 0)
+        {
+            NumUsable++;
+        }
+    }
+    if (NumUsable == 0)
+    {
+        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                      "Parallel DataPlane: none of the configured sub-dataplanes is usable.\n");
         return -1;
     }
     return 1000;
@@ -1103,7 +1206,7 @@ extern CP_DP_Interface LoadParallelDP()
     ParallelDPInterface.readerReleaseTimestep = ParallelReaderReleaseTimestep;
     ParallelDPInterface.WSRreadPatternLocked = ParallelWSRReadPatternLocked;
     ParallelDPInterface.RSreadPatternLocked = ParallelRSReadPatternLocked;
-    ParallelDPInterface.RSReleaseTimestep = NULL;
+    ParallelDPInterface.RSReleaseTimestep = ParallelRSReleaseTimestep;
     ParallelDPInterface.timestepArrived = (CP_DP_ReaderTimestepArrivalFunc)ParallelTimestepArrived;
     ParallelDPInterface.destroyReader = ParallelDestroyReader;
     ParallelDPInterface.destroyWriter = ParallelDestroyWriter;
