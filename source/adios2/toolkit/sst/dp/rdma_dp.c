@@ -59,6 +59,7 @@
 
 #include "sst_data.h"
 
+#include "dp_config.h"
 #include "dp_interface.h"
 
 #define DP_AV_DEF_SIZE 512
@@ -401,7 +402,7 @@ static char const *get_preferred_domain(struct _SstParams *Params)
     }
     else
     {
-        return getenv("FABRIC_IFACE");
+        return get_dataplane_config(Params, "FABRIC_IFACE");
     }
 }
 
@@ -491,7 +492,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
     fabric->info = NULL;
 
     char const *provider_name = NULL;
-    if ((provider_name = getenv("FABRIC_PROVIDER")))
+    if ((provider_name = get_dataplane_config(Params, "FABRIC_PROVIDER")))
     {
         size_t len = strlen(provider_name);
         hints->fabric_attr->prov_name = malloc(len + 1);
@@ -982,6 +983,7 @@ typedef struct _Rdma_RS_Stream
     struct _RdmaWriterContactInfo *WriterContactInfo;
 
     fi_addr_t *WriterAddr;
+    int *WriterRoutable;
     struct _RdmaBufferHandle *WriterRoll;
 
     int PendingReads;
@@ -1021,6 +1023,7 @@ typedef struct _Rdma_WSR_Stream
     struct _RdmaBuffer *ReaderRoll;
     struct fid_mr *rrmr;
     fi_addr_t *ReaderAddr;
+    int *ReaderRoutable;
     int SelectLocked;
     int Preload;
     int SelectionPulled;
@@ -1104,7 +1107,7 @@ static int get_cxi_auth_key_from_env(CP_Services Svcs, void *CP_Stream, struct _
     // };
 
     // typical value SLINGSHOT_DEVICES=cxi0,cxi1,cxi2,cxi3
-    char const *slingshot_devices = getenv("SLINGSHOT_DEVICES");
+    char const *slingshot_devices = get_dataplane_config(Params, "SLINGSHOT_DEVICES");
     char const *preferred_device = get_preferred_domain(Params);
 
     if ((preferred_device && strncmp("cxi", preferred_device, 3) != 0) || !slingshot_devices)
@@ -1177,14 +1180,14 @@ static int get_cxi_auth_key_from_env(CP_Services Svcs, void *CP_Stream, struct _
                   device_index);
 
     // typical value SLINGSHOT_VNIS=4576,4530
-    char const *vni_env_str = getenv("SLINGSHOT_VNIS");
+    char const *vni_env_str = get_dataplane_config(Params, "SLINGSHOT_VNIS");
     if (!vni_env_str)
     {
         return EXIT_FAILURE;
     }
 
     // typical value SLINGSHOT_SVC_IDS=5,5,5,5
-    char const *svc_ids_env_str = getenv("SLINGSHOT_SVC_IDS");
+    char const *svc_ids_env_str = get_dataplane_config(Params, "SLINGSHOT_SVC_IDS");
     if (!svc_ids_env_str)
     {
         return EXIT_FAILURE;
@@ -1265,9 +1268,9 @@ static int get_cxi_auth_key_from_writer(struct cxi_auth_key *key, attr_list Writ
  * Returns 1 if `writer_vni` appears in the comma-separated SLINGSHOT_VNIS env
  * value (e.g. "4576,4530"), 0 otherwise.  If SLINGSHOT_VNIS is unset, returns 0.
  */
-static int writer_vni_in_local_env(uint16_t writer_vni)
+static int writer_vni_in_local_env(struct _SstParams *Params, uint16_t writer_vni)
 {
-    char const *vni_env_str = getenv("SLINGSHOT_VNIS");
+    char const *vni_env_str = get_dataplane_config(Params, "SLINGSHOT_VNIS");
     if (!vni_env_str)
     {
         return 0;
@@ -1306,10 +1309,10 @@ typedef enum
     ProgressThreadNo
 } ProgressThread;
 
-static ProgressThread use_progress_thread()
+static ProgressThread use_progress_thread(struct _SstParams *Params)
 {
     size_t const max_len = 4;
-    char const *use_progress_thread_envvar = getenv("FABRIC_PROGRESS_THREAD");
+    char const *use_progress_thread_envvar = get_dataplane_config(Params, "FABRIC_PROGRESS_THREAD");
     char use_progress_thread[max_len];
 
     if (!use_progress_thread_envvar)
@@ -1351,10 +1354,10 @@ static ProgressThread use_progress_thread()
 // 3. If for any reason the use of progress threads causes trouble, they can be turned
 //    off this way.
 static int init_progress_thread(FabricState fabric, CP_Services Svcs, void *CP_Stream,
-                                int is_reader)
+                                struct _SstParams *Params, int is_reader)
 {
     int do_init_thread = 1;
-    switch (use_progress_thread())
+    switch (use_progress_thread(Params))
     {
     case ProgressThreadUnspecified:
         if (is_reader)
@@ -1440,7 +1443,7 @@ static DP_RS_Stream RdmaInitReader(CP_Services Svcs, void *CP_Stream, void **Rea
     SMPI_Comm comm = Svcs->getMPIComm(CP_Stream);
     RdmaReaderContactInfo ContactInfo = malloc(sizeof(struct _RdmaReaderContactInfo));
     FabricState Fabric;
-    char *PreloadEnv = NULL;
+    const char *PreloadEnv = NULL;
 
     memset(Stream, 0, sizeof(*Stream));
     Stream->Fabric = calloc(1, sizeof(*Fabric));
@@ -1465,7 +1468,7 @@ static DP_RS_Stream RdmaInitReader(CP_Services Svcs, void *CP_Stream, void **Rea
         memcpy(Stream->Params, Params, sizeof(*Params));
     }
 
-    PreloadEnv = getenv("SST_DP_PRELOAD");
+    PreloadEnv = get_dataplane_config(Params, "SST_DP_PRELOAD");
     if (PreloadEnv && (strcmp(PreloadEnv, "1") == 0 || strcmp(PreloadEnv, "yes") == 0 ||
                        strcmp(PreloadEnv, "Yes") == 0 || strcmp(PreloadEnv, "YES") == 0))
     {
@@ -1502,9 +1505,9 @@ static DP_RS_Stream RdmaInitReader(CP_Services Svcs, void *CP_Stream, void **Rea
     {
         Svcs->verbose(CP_Stream, DPSummaryVerbose, "Reader found CXI auth key: %d %d\n",
                       tagged_key.key.vni, tagged_key.key.svc_id);
-        if (Stream->Rank == 0 && !writer_vni_in_local_env(tagged_key.key.vni))
+        if (Stream->Rank == 0 && !writer_vni_in_local_env(Params, tagged_key.key.vni))
         {
-            char const *local_vnis = getenv("SLINGSHOT_VNIS");
+            char const *local_vnis = get_dataplane_config(Params, "SLINGSHOT_VNIS");
             Svcs->verbose(CP_Stream, DPCriticalVerbose,
                           "WARNING: SST RDMA DataPlane: writer's CXI VNI %u is not "
                           "present in this process's SLINGSHOT_VNIS=\"%s\".  "
@@ -1570,7 +1573,7 @@ static DP_RS_Stream RdmaInitReader(CP_Services Svcs, void *CP_Stream, void **Rea
         return NULL;
     }
 
-    if (init_progress_thread(Fabric, Svcs, CP_Stream, /* is_reader = */ 1) == EXIT_FAILURE)
+    if (init_progress_thread(Fabric, Svcs, CP_Stream, Params, /* is_reader = */ 1) == EXIT_FAILURE)
     {
         return NULL;
     }
@@ -1658,14 +1661,14 @@ static DP_WS_Stream RdmaInitWriter(CP_Services Svcs, void *CP_Stream, struct _Ss
 {
     Rdma_WS_Stream Stream = malloc(sizeof(struct _Rdma_WS_Stream));
     SMPI_Comm comm = Svcs->getMPIComm(CP_Stream);
-    char *PreloadEnv;
+    const char *PreloadEnv;
     FabricState Fabric;
 
     memset(Stream, 0, sizeof(struct _Rdma_WS_Stream));
 
     SMPI_Comm_rank(comm, &Stream->Rank);
 
-    PreloadEnv = getenv("SST_DP_PRELOAD");
+    PreloadEnv = get_dataplane_config(Params, "SST_DP_PRELOAD");
     if (PreloadEnv && (strcmp(PreloadEnv, "1") == 0 || strcmp(PreloadEnv, "yes") == 0 ||
                        strcmp(PreloadEnv, "Yes") == 0 || strcmp(PreloadEnv, "YES") == 0))
     {
@@ -1778,7 +1781,7 @@ static DP_WS_Stream RdmaInitWriter(CP_Services Svcs, void *CP_Stream, struct _Ss
     Svcs->verbose(CP_Stream, DPTraceDupVerbose, "Fabric Parameters:\n%s\n",
                   fi_tostr(Fabric->info, FI_TYPE_INFO));
 
-    if (init_progress_thread(Fabric, Svcs, CP_Stream, /* is_reader = */ 0) == EXIT_FAILURE)
+    if (init_progress_thread(Fabric, Svcs, CP_Stream, Params, /* is_reader = */ 0) == EXIT_FAILURE)
     {
         goto err_out;
     }
@@ -1823,18 +1826,19 @@ static DP_WSR_Stream RdmaInitWriterPerReader(CP_Services Svcs, DP_WS_Stream WS_S
     WSR_Stream->ReaderCohortSize = readerCohortSize;
 
     WSR_Stream->ReaderAddr = calloc(readerCohortSize, sizeof(*WSR_Stream->ReaderAddr));
+    WSR_Stream->ReaderRoutable = calloc(readerCohortSize, sizeof(*WSR_Stream->ReaderRoutable));
 
     for (i = 0; i < readerCohortSize; i++)
     {
+        WSR_Stream->ReaderAddr[i] = FI_ADDR_UNSPEC;
         if (fi_av_insert(Fabric->av, providedReaderInfo[i]->Address, 1, &WSR_Stream->ReaderAddr[i],
                          0, NULL) < 1)
         {
-
-            Svcs->verbose(WS_Stream->CP_Stream, DPCriticalVerbose,
-                          "[RdmaInitWRiterPerReader] Failed inserting address "
-                          "into vector\n");
-            return NULL;
+            Svcs->verbose(WS_Stream->CP_Stream, DPTraceDupVerbose,
+                          "[RdmaInitWriterPerReader] Reader rank %d is not routable.\n", i);
+            continue;
         }
+        WSR_Stream->ReaderRoutable[i] = 1;
         Svcs->verbose(WS_Stream->CP_Stream, DPTraceDupVerbose,
                       "Received contact info for RS_Stream %p, WSR Rank %d\n",
                       providedReaderInfo[i]->RS_Stream, i);
@@ -1910,6 +1914,7 @@ static void RdmaProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_Stre
     RS_Stream->PeerCohort = PeerCohort;
     RS_Stream->WriterCohortSize = writerCohortSize;
     RS_Stream->WriterAddr = calloc(writerCohortSize, sizeof(*RS_Stream->WriterAddr));
+    RS_Stream->WriterRoutable = calloc(writerCohortSize, sizeof(*RS_Stream->WriterRoutable));
     RS_Stream->WriterRoll = calloc(writerCohortSize, sizeof(*RS_Stream->WriterRoll));
 
     /*
@@ -1920,16 +1925,16 @@ static void RdmaProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_Stre
 
     for (int i = 0; i < writerCohortSize; i++)
     {
+        RS_Stream->WriterAddr[i] = FI_ADDR_UNSPEC;
         RS_Stream->WriterContactInfo[i].WS_Stream = providedWriterInfo[i]->WS_Stream;
         if (fi_av_insert(Fabric->av, providedWriterInfo[i]->Address, 1, &RS_Stream->WriterAddr[i],
                          0, NULL) < 1)
         {
-            Svcs->verbose(RS_Stream->CP_Stream, DPCriticalVerbose,
-                          "[RdmaProvideWriterDataToReader] "
-                          "Failed inserting address "
-                          "into vector\n");
-            return;
+            Svcs->verbose(RS_Stream->CP_Stream, DPTraceDupVerbose,
+                          "[RdmaProvideWriterDataToReader] Writer rank %d is not routable.\n", i);
+            continue;
         }
+        RS_Stream->WriterRoutable[i] = 1;
         RS_Stream->WriterRoll[i] = providedWriterInfo[i]->ReaderRollHandle;
         Svcs->verbose(RS_Stream->CP_Stream, DPTraceDupVerbose,
                       "Received contact info for WS_stream %p, WSR Rank %d\n",
@@ -2104,6 +2109,14 @@ static void *RdmaReadRemoteMemory(CP_Services Svcs, DP_RS_Stream Stream_v, int R
 
     Svcs->verbose(RS_Stream->CP_Stream, DPTraceVerbose,
                   "Performing remote read of Writer Rank %d at step %d\n", Rank, Timestep);
+
+    if (Rank < 0 || Rank >= RS_Stream->WriterCohortSize || !RS_Stream->WriterRoutable ||
+        !RS_Stream->WriterRoutable[Rank])
+    {
+        Svcs->verbose(RS_Stream->CP_Stream, DPTraceDupVerbose,
+                      "Writer rank %d is not routable over this dataplane.\n", Rank);
+        return (NULL);
+    }
 
     if (Info)
     {
@@ -2464,6 +2477,7 @@ static void RdmaDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
                   "Done with Destroy Step in RDMA destroy reader\n");
     free(RS_Stream->WriterContactInfo);
     free(RS_Stream->WriterAddr);
+    free(RS_Stream->WriterRoutable);
     free(RS_Stream->WriterRoll);
     if (RS_Stream->ContactInfo)
     {
@@ -2493,6 +2507,10 @@ static void RdmaDestroyWriterPerReader(CP_Services Svcs, DP_WSR_Stream WSR_Strea
     if (WSR_Stream->ReaderAddr)
     {
         free(WSR_Stream->ReaderAddr);
+    }
+    if (WSR_Stream->ReaderRoutable)
+    {
+        free(WSR_Stream->ReaderRoutable);
     }
     WS_Stream->Readers =
         realloc(WS_Stream->Readers, sizeof(*WSR_Stream) * (WS_Stream->ReaderCount - 1));
@@ -2609,11 +2627,23 @@ static struct _CP_DP_Interface RdmaDPInterface = {0};
  * what is set in the FABRIC_IFACE environment variable.
  *
  */
+static DP_PeerRouteStatus RdmaGetPeerRouteStatus(CP_Services Svcs, DP_RS_Stream RS_Stream_v,
+                                                 int WriterRank)
+{
+    Rdma_RS_Stream RS_Stream = (Rdma_RS_Stream)RS_Stream_v;
+    if (!RS_Stream || !RS_Stream->WriterRoutable || WriterRank < 0 ||
+        WriterRank >= RS_Stream->WriterCohortSize)
+    {
+        return DPPeerRouteUnknown;
+    }
+    return RS_Stream->WriterRoutable[WriterRank] ? DPPeerRouteAvailable : DPPeerRouteNoRoute;
+}
+
 static int RdmaGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params)
 {
     struct fi_info *hints, *info, *originfo;
     char const *ifname;
-    char *forkunsafe;
+    const char *forkunsafe;
     int Ret = -1;
 
     hints = fi_allocinfo();
@@ -2623,7 +2653,7 @@ static int RdmaGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams 
         FI_CONTEXT | ADIOS_FI_LOCAL_MR | FI_CONTEXT2 | FI_MSG_PREFIX | FI_ASYNC_IOV | FI_RX_CQ_DATA;
     hints->ep_attr->type = FI_EP_RDM;
 
-    char const *vni_env_str = getenv("SLINGSHOT_VNIS");
+    char const *vni_env_str = get_dataplane_config(Params, "SLINGSHOT_VNIS");
 
 #ifdef SST_HAVE_CRAY_CXI
     if (!vni_env_str)
@@ -2699,14 +2729,14 @@ static int RdmaGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams 
     ifname = get_preferred_domain(Params);
 
     char const *provider_name = NULL;
-    if ((provider_name = getenv("FABRIC_PROVIDER")))
+    if ((provider_name = get_dataplane_config(Params, "FABRIC_PROVIDER")))
     {
         size_t len = strlen(provider_name);
         hints->fabric_attr->prov_name = malloc(len + 1);
         memcpy(hints->fabric_attr->prov_name, provider_name, len + 1);
     }
 
-    forkunsafe = getenv("FI_FORK_UNSAFE");
+    forkunsafe = get_dataplane_config(Params, "FI_FORK_UNSAFE");
     if (!forkunsafe)
     {
         putenv("FI_FORK_UNSAFE=Yes");
@@ -2797,6 +2827,11 @@ static void PushData(CP_Services Svcs, Rdma_WSR_Stream Stream, TimestepList Step
     Step->OutstandingWrites = 0;
     while (RankReq)
     {
+        if (!Stream->ReaderRoutable || !Stream->ReaderRoutable[RankReq->Rank])
+        {
+            RankReq = RankReq->next;
+            continue;
+        }
         RollBuffer = &ReaderRoll[RankReq->Rank];
         for (i = 0; i < RankReq->Entries; i++)
         {
@@ -2945,6 +2980,10 @@ static void PostPreload(CP_Services Svcs, Rdma_RS_Stream Stream, long Timestep)
     RawPLBuffer = PreloadBuffer->Handle.Block;
     for (i = 0; i < Stream->WriterCohortSize; i++)
     {
+        if (!Stream->WriterRoutable || !Stream->WriterRoutable[i])
+        {
+            continue;
+        }
         RankLog = &StepLog->RankLog[i];
         if (RankLog->Entries > 0)
         {
@@ -3076,7 +3115,7 @@ static void PullSelection(CP_Services Svcs, Rdma_WSR_Stream Stream)
 
     for (i = 0; i < Stream->ReaderCohortSize; i++)
     {
-        if (ReaderRoll[i].BufferLen > 0)
+        if (Stream->ReaderRoutable && Stream->ReaderRoutable[i] && ReaderRoll[i].BufferLen > 0)
         {
             RankReq = malloc(sizeof(struct _RdmaRankReqLog));
             RankReq->Entries = (ReaderRoll[i].BufferLen - sizeof(uint64_t)) /
@@ -3278,5 +3317,6 @@ extern NO_SANITIZE_THREAD CP_DP_Interface LoadRdmaDP()
     RdmaDPInterface.destroyWriterPerReader = NULL; // unused at CP level RdmaDestroyWriterPerReader;
     RdmaDPInterface.getPriority = RdmaGetPriority;
     RdmaDPInterface.unGetPriority = RdmaUnGetPriority;
+    RdmaDPInterface.getPeerRouteStatus = RdmaGetPeerRouteStatus;
     return &RdmaDPInterface;
 }

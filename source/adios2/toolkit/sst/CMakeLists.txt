@@ -9,6 +9,7 @@
 add_library(sst OBJECT
   dp/dp.c
   dp/evpath_dp.c
+  dp_config.c
   cp/cp_reader.c
   cp/cp_writer.c
   cp/cp_common.c

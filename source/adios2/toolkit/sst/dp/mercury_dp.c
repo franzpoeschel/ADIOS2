@@ -24,6 +24,7 @@
 #include <mercury.h>
 #include <mercury_macros.h>
 
+#include "dp_config.h"
 #include "dp_interface.h"
 #include "sst_data.h"
 #include <adios2-perfstubs-interface.h>
@@ -249,21 +250,28 @@ typedef struct _MercuryCompletionHandle
  * communication. When two VNIs are present, the second is the job-level
  * VNI suitable for inter-process communication.
  */
-static margo_instance_id MercuryCreateMargoInstance(const char *protocol)
+static margo_instance_id MercuryCreateMargoInstance(const char *protocol, struct _SstParams *Params)
 {
     /* On CXI/Slingshot, RDMA bulk transfers require proper auth keys.
      * margo_init_ext with JSON "auth_key":"0:0:1" lets mercury's NA OFI
      * layer auto-discover the correct VNI from SLINGSHOT_VNIS env var.
      * Plain margo_init skips this and RDMA fails with EXDEV. */
-    if (strstr(protocol, "cxi") && getenv("SLINGSHOT_VNIS"))
+    if (strstr(protocol, "cxi") && get_dataplane_config(Params, "SLINGSHOT_VNIS"))
     {
         /* Mercury tokenizes these in place, so put them back for the next instance. */
         const char *EnvNames[] = {"SLINGSHOT_DEVICES", "SLINGSHOT_SVC_IDS", "SLINGSHOT_VNIS"};
         char *Saved[3];
+        int HadSaved[3];
         for (int i = 0; i < 3; i++)
         {
-            const char *Value = getenv(EnvNames[i]);
-            Saved[i] = Value ? strdup(Value) : NULL;
+            const char *Original = getenv(EnvNames[i]);
+            Saved[i] = Original ? strdup(Original) : NULL;
+            HadSaved[i] = Original != NULL;
+            const char *Value = get_dataplane_config(Params, EnvNames[i]);
+            if (Value)
+            {
+                setenv(EnvNames[i], Value, 1);
+            }
         }
         struct margo_init_info info = {0};
         info.json_config = "{ \"mercury\": { \"auth_key\": \"0:0:1\" },"
@@ -272,11 +280,15 @@ static margo_instance_id MercuryCreateMargoInstance(const char *protocol)
         margo_instance_id mid = margo_init_ext(protocol, MARGO_SERVER_MODE, &info);
         for (int i = 0; i < 3; i++)
         {
-            if (Saved[i])
+            if (HadSaved[i])
             {
                 setenv(EnvNames[i], Saved[i], 1);
-                free(Saved[i]);
             }
+            else
+            {
+                unsetenv(EnvNames[i]);
+            }
+            free(Saved[i]);
         }
         return mid;
     }
@@ -305,10 +317,10 @@ static DP_RS_Stream MercuryInitReader(CP_Services Svcs, void *CP_Stream,
 
     const char *protocol = Params->MercuryProtocol;
     if (!protocol)
-        protocol = getenv("SST_MERCURY_PROTOCOL");
+        protocol = get_dataplane_config(Params, "SST_MERCURY_PROTOCOL");
     if (!protocol)
         protocol = "tcp";
-    Stream->mid = MercuryCreateMargoInstance(protocol);
+    Stream->mid = MercuryCreateMargoInstance(protocol, Params);
     if (Stream->mid == MARGO_INSTANCE_NULL)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
@@ -405,10 +417,10 @@ static DP_WS_Stream MercuryInitWriter(CP_Services Svcs, void *CP_Stream, struct 
 
     const char *protocol = Params->MercuryProtocol;
     if (!protocol)
-        protocol = getenv("SST_MERCURY_PROTOCOL");
+        protocol = get_dataplane_config(Params, "SST_MERCURY_PROTOCOL");
     if (!protocol)
         protocol = "tcp";
-    Stream->mid = MercuryCreateMargoInstance(protocol);
+    Stream->mid = MercuryCreateMargoInstance(protocol, Params);
     if (Stream->mid == MARGO_INSTANCE_NULL)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose,

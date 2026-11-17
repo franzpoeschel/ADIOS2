@@ -14,7 +14,8 @@ gtest_add_tests_helper(SstWriterFails MPI_ALLOW "" Engine.SST. "")
 # requiring an RDMA device or creating real UCX endpoints.
 if(ADIOS2_SST_HAVE_UCX AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
    AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-  add_executable(Test.SST.UCXEndpoints TestUCXEndpoints.c)
+  add_executable(Test.SST.UCXEndpoints TestUCXEndpoints.c
+    ${PROJECT_SOURCE_DIR}/source/adios2/toolkit/sst/dp_config.c)
   target_include_directories(Test.SST.UCXEndpoints PRIVATE
     $<TARGET_PROPERTY:sst,INCLUDE_DIRECTORIES>)
   target_link_libraries(Test.SST.UCXEndpoints PRIVATE
@@ -28,4 +29,14 @@ if(ADIOS2_SST_HAVE_UCX AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
   add_test(NAME Engine.SST.UCXEndpoints COMMAND Test.SST.UCXEndpoints)
   set_tests_properties(Engine.SST.UCXEndpoints PROPERTIES
     LABELS "SST;UCX" TIMEOUT 30)
+endif()
+
+gtest_add_tests_helper(SstDataplaneConfig MPI_NONE "" Engine.SST. "")
+
+if(ADIOS2_HAVE_SST AND ADIOS2_HAVE_MPI)
+  add_executable(Test.SST.ParallelHarness SstParallelHarness.cpp)
+  target_link_libraries(Test.SST.ParallelHarness PRIVATE
+    adios2::cxx_mpi adios2::c_mpi adios2_core_mpi MPI::MPI_CXX)
+  set_target_properties(Test.SST.ParallelHarness PROPERTIES
+    BUILD_WITH_INSTALL_RPATH TRUE)
 endif()

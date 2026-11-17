@@ -49,6 +49,7 @@
 
 #include "sst_data.h"
 
+#include "dp_config.h"
 #include "dp_interface.h"
 
 pthread_mutex_t ucx_wsr_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -317,10 +318,11 @@ typedef enum
 /*
  * `export UCX_POSIX_USE_PROC_LINK=n` might be necessary to make this work.
  */
-static ProgressThread use_progress_thread()
+static ProgressThread use_progress_thread(struct _SstParams *Params)
 {
     size_t const max_len = 4;
-    char const *use_progress_thread_envvar = getenv("SST_UCX_PROGRESS_THREAD");
+    char const *use_progress_thread_envvar =
+        get_dataplane_config(Params, "SST_UCX_PROGRESS_THREAD");
     char use_progress_thread[max_len];
 
     if (!use_progress_thread_envvar)
@@ -367,7 +369,7 @@ static DP_WS_Stream UcxInitWriter(CP_Services Svcs, void *CP_Stream, struct _Sst
 
     Stream->CP_Stream = CP_Stream;
 
-    switch (use_progress_thread())
+    switch (use_progress_thread(Params))
     {
     case ProgressThreadUnspecified:
         // Since UCX does not allow asking the worker if it supports

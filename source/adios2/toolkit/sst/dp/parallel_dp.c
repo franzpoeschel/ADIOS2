@@ -20,6 +20,7 @@
 #include <ffs.h>
 
 #include "SSTConfig.h"
+#include "dp_config.h"
 #include "dp_interface.h"
 
 #ifdef _MSC_VER
@@ -39,8 +40,10 @@ enum ParallelSubDPScope
 typedef struct _ParallelSubDPConfig
 {
     CP_DP_Interface Interface;
+    char *TypeName;
     char *Name;
     enum ParallelSubDPScope Scope;
+    struct _SstParams Params;
 } *ParallelSubDPConfig;
 
 typedef struct _ParallelConfig
@@ -159,6 +162,7 @@ extern CP_DP_Interface LoadMpiDP();
 static struct _ParallelSubDPRegistry ParallelRegistry[] = {{"evpath", LoadEVpathDP},
 #ifdef SST_HAVE_LIBFABRIC
                                                            {"rdma", LoadRdmaDP},
+                                                           {"libfabric", LoadRdmaDP},
 #endif
 #ifdef SST_HAVE_UCX
                                                            {"ucx", LoadUcxDP},
@@ -174,10 +178,10 @@ static struct _ParallelSubDPRegistry ParallelRegistry[] = {{"evpath", LoadEVpath
 #endif
                                                            {NULL, NULL}};
 
-static char *ParallelDupHostname()
+static char *ParallelDupHostname(struct _SstParams *Params)
 {
     char Buffer[256] = {0};
-    const char *Override = getenv("SST_PARALLEL_NODE_ID");
+    const char *Override = get_dataplane_config(Params, "SST_PARALLEL_NODE_ID");
     if (Override && Override[0])
     {
         return strdup(Override);
@@ -229,6 +233,42 @@ static int ParallelParseScope(char *Scope)
         return ParallelScopeRemote;
     }
     return ParallelScopeAny;
+}
+
+static int ParallelHexValue(char Character)
+{
+    if (Character >= '0' && Character <= '9')
+    {
+        return Character - '0';
+    }
+    if (Character >= 'a' && Character <= 'f')
+    {
+        return Character - 'a' + 10;
+    }
+    if (Character >= 'A' && Character <= 'F')
+    {
+        return Character - 'A' + 10;
+    }
+    return -1;
+}
+
+static void ParallelPercentDecode(char *String)
+{
+    char *Read = String;
+    char *Write = String;
+    while (*Read)
+    {
+        if (*Read == '%' && ParallelHexValue(Read[1]) >= 0 && ParallelHexValue(Read[2]) >= 0)
+        {
+            *Write++ = (char)((ParallelHexValue(Read[1]) << 4) | ParallelHexValue(Read[2]));
+            Read += 3;
+        }
+        else
+        {
+            *Write++ = *Read++;
+        }
+    }
+    *Write = '\0';
 }
 
 static CP_DP_Interface ParallelLoadSubDP(const char *Name)
@@ -288,7 +328,9 @@ static void ParallelConfigDestroy(ParallelConfig Config)
     }
     for (int i = 0; i < Config->NumSubDPs; i++)
     {
+        free(Config->SubDPs[i].TypeName);
         free(Config->SubDPs[i].Name);
+        SST_FreeDataPlaneParams(&Config->SubDPs[i].Params);
     }
     if (Config->FFS)
     {
@@ -297,12 +339,53 @@ static void ParallelConfigDestroy(ParallelConfig Config)
     free(Config);
 }
 
-static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream, int RegisterFormats)
+static int ParallelAssignDefaultIds(CP_Services Svcs, void *CP_Stream, ParallelConfig Config)
 {
-    const char *ConfigString = getenv("SST_PARALLEL_DP");
+    for (int i = 0; i < Config->NumSubDPs; i++)
+    {
+        if (Config->SubDPs[i].Name)
+        {
+            continue;
+        }
+        int Ordinal = 0;
+        for (int j = 0; j < i; j++)
+        {
+            if (strcasecmp(Config->SubDPs[j].TypeName, Config->SubDPs[i].TypeName) == 0)
+            {
+                Ordinal++;
+            }
+        }
+        char Buffer[256];
+        snprintf(Buffer, sizeof(Buffer), "%s%d", Config->SubDPs[i].TypeName, Ordinal);
+        Config->SubDPs[i].Name = strdup(Buffer);
+    }
+
+    for (int i = 0; i < Config->NumSubDPs; i++)
+    {
+        for (int j = i + 1; j < Config->NumSubDPs; j++)
+        {
+            if (strcmp(Config->SubDPs[i].Name, Config->SubDPs[j].Name) == 0)
+            {
+                if (Svcs)
+                {
+                    Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                                  "Parallel DataPlane: duplicate sub-dataplane id \"%s\".\n",
+                                  Config->SubDPs[i].Name);
+                }
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
+                                           struct _SstParams *Params, int RegisterFormats)
+{
+    const char *ConfigString = get_dataplane_config(Params, "SST_PARALLEL_DP");
     if (!ConfigString || !ConfigString[0])
     {
-        ConfigString = getenv("SST_VIRTUAL_DP");
+        ConfigString = get_dataplane_config(Params, "SST_VIRTUAL_DP");
     }
     if (!ConfigString || !ConfigString[0])
     {
@@ -314,63 +397,111 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream, in
     char *Cursor = Copy;
     while (Cursor && *Cursor && Config->NumSubDPs < PARALLEL_MAX_SUB_DPS)
     {
-        char *Comma = strchr(Cursor, ',');
-        if (Comma)
+        char *Separator = strchr(Cursor, ';');
+        if (Separator)
         {
-            *Comma = '\0';
+            *Separator = '\0';
         }
         char *Entry = ParallelTrim(Cursor);
         if (Entry[0])
         {
-            char *Scope = NULL;
-            char *Separator = strchr(Entry, '@');
-            if (!Separator)
+            char *Options = strchr(Entry, '?');
+            if (Options)
             {
-                Separator = strchr(Entry, ':');
+                *Options++ = '\0';
             }
-            if (Separator)
+            char *TypeName = ParallelTrim(Entry);
+            CP_DP_Interface Interface = ParallelLoadSubDP(TypeName);
+            if (!Interface)
             {
-                *Separator = '\0';
-                Scope = ParallelTrim(Separator + 1);
-                Entry = ParallelTrim(Entry);
-            }
-            CP_DP_Interface Interface = ParallelLoadSubDP(Entry);
-            if (Interface)
-            {
-                int Duplicate = 0;
-                for (int i = 0; i < Config->NumSubDPs; i++)
-                {
-                    if (Config->SubDPs[i].Interface == Interface)
-                    {
-                        Duplicate = 1;
-                        break;
-                    }
-                }
-                if (!Duplicate)
-                {
-                    int Index = Config->NumSubDPs++;
-                    Config->SubDPs[Index].Interface = Interface;
-                    Config->SubDPs[Index].Name = strdup(Entry);
-                    Config->SubDPs[Index].Scope = ParallelParseScope(Scope);
-                }
-                else if (Svcs)
+                if (Svcs)
                 {
                     Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                                  "Parallel DataPlane: ignoring duplicate sub-dataplane \"%s\".\n",
-                                  Entry);
+                                  "Parallel DataPlane: unknown sub-dataplane \"%s\".\n", TypeName);
                 }
             }
-            else if (Svcs)
+            else
             {
-                Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                              "Parallel DataPlane: unknown sub-dataplane \"%s\".\n", Entry);
+                struct _SstParams Overrides = {0};
+                char *InstanceId = NULL;
+                enum ParallelSubDPScope Scope = ParallelScopeAny;
+                char *OptionCursor = Options;
+                while (OptionCursor && *OptionCursor)
+                {
+                    char *Ampersand = strchr(OptionCursor, '&');
+                    if (Ampersand)
+                    {
+                        *Ampersand = '\0';
+                    }
+                    char *Option = ParallelTrim(OptionCursor);
+                    if (Option[0])
+                    {
+                        char *Equals = strchr(Option, '=');
+                        if (!Equals)
+                        {
+                            if (Svcs)
+                            {
+                                Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                                              "Parallel DataPlane: ignoring malformed option "
+                                              "\"%s\".\n",
+                                              Option);
+                            }
+                        }
+                        else
+                        {
+                            *Equals++ = '\0';
+                            char *Key = ParallelTrim(Option);
+                            char *Value = ParallelTrim(Equals);
+                            ParallelPercentDecode(Key);
+                            ParallelPercentDecode(Value);
+                            if (strcasecmp(Key, "id") == 0)
+                            {
+                                free(InstanceId);
+                                InstanceId = strdup(Value);
+                            }
+                            else if (strcasecmp(Key, "scope") == 0)
+                            {
+                                Scope = ParallelParseScope(Value);
+                            }
+                            else
+                            {
+                                SST_AddDataPlaneParam(&Overrides, Key, Value);
+                            }
+                        }
+                    }
+                    OptionCursor = Ampersand ? Ampersand + 1 : NULL;
+                }
+
+                int Index = Config->NumSubDPs++;
+                struct _ParallelSubDPConfig *SubDP = &Config->SubDPs[Index];
+                SubDP->Interface = Interface;
+                SubDP->TypeName = strdup(TypeName);
+                SubDP->Name = InstanceId;
+                SubDP->Scope = Scope;
+
+                struct _SstParams SubParams = {0};
+                if (Params)
+                {
+                    SubParams = *Params;
+                }
+                SubParams.DataPlaneParamCount = 0;
+                SubParams.DataPlaneParamKeys = NULL;
+                SubParams.DataPlaneParamValues = NULL;
+                SST_MergeDataPlaneParams(&SubParams, Params, &Overrides);
+                SubDP->Params = SubParams;
+                SST_FreeDataPlaneParams(&Overrides);
             }
         }
-        Cursor = Comma ? Comma + 1 : NULL;
+        Cursor = Separator ? Separator + 1 : NULL;
     }
     free(Copy);
 
     if (Config->NumSubDPs == 0)
+    {
+        ParallelConfigDestroy(Config);
+        return NULL;
+    }
+    if (ParallelAssignDefaultIds(Svcs, CP_Stream, Config) != 0)
     {
         ParallelConfigDestroy(Config);
         return NULL;
@@ -580,7 +711,7 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
                                        void **ReaderContactInfoPtr, struct _SstParams *Params,
                                        attr_list WriterContact, SstStats Stats)
 {
-    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, 1);
+    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, Params, 1);
     if (!Config)
     {
         return NULL;
@@ -590,7 +721,7 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
     Stream->Svcs = Svcs;
     Stream->CP_Stream = CP_Stream;
     Stream->Config = Config;
-    Stream->Hostname = ParallelDupHostname();
+    Stream->Hostname = ParallelDupHostname(Params);
     Stream->NumSubDPs = (size_t)Config->NumSubDPs;
     Stream->SubDPs = calloc(Stream->NumSubDPs, sizeof(*Stream->SubDPs));
 
@@ -606,8 +737,8 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
         SubDP->Scope = Config->SubDPs[i].Scope;
         if (SubDP->Interface->initReader)
         {
-            SubDP->RS_Stream = SubDP->Interface->initReader(Svcs, CP_Stream, &ContactInfo[i],
-                                                            Params, WriterContact, Stats);
+            SubDP->RS_Stream = SubDP->Interface->initReader(
+                Svcs, CP_Stream, &ContactInfo[i], &Config->SubDPs[i].Params, WriterContact, Stats);
         }
         if (SubDP->RS_Stream)
         {
@@ -672,7 +803,7 @@ static void ParallelDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
 static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params,
                                        attr_list DPAttrs, SstStats Stats)
 {
-    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, 1);
+    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, Params, 1);
     if (!Config)
     {
         return NULL;
@@ -682,7 +813,7 @@ static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct
     Stream->Svcs = Svcs;
     Stream->CP_Stream = CP_Stream;
     Stream->Config = Config;
-    Stream->Hostname = ParallelDupHostname();
+    Stream->Hostname = ParallelDupHostname(Params);
     Stream->NumSubDPs = (size_t)Config->NumSubDPs;
     Stream->SubDPs = calloc(Stream->NumSubDPs, sizeof(*Stream->SubDPs));
 
@@ -695,8 +826,8 @@ static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct
         SubDP->Scope = Config->SubDPs[i].Scope;
         if (SubDP->Interface->initWriter)
         {
-            SubDP->WS_Stream =
-                SubDP->Interface->initWriter(Svcs, CP_Stream, Params, DPAttrs, Stats);
+            SubDP->WS_Stream = SubDP->Interface->initWriter(
+                Svcs, CP_Stream, &Config->SubDPs[i].Params, DPAttrs, Stats);
         }
         if (SubDP->WS_Stream)
         {
@@ -920,6 +1051,12 @@ static void *ParallelReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v
         }
 
         ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        if (SubDP->Interface->getPeerRouteStatus &&
+            SubDP->Interface->getPeerRouteStatus(Svcs, SubDP->RS_Stream, Rank) ==
+                DPPeerRouteNoRoute)
+        {
+            continue;
+        }
         void *SubTimestepInfo = NULL;
         if (SubDP->Interface->TimestepInfoFormats)
         {
@@ -1197,7 +1334,7 @@ static void ParallelDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
 
 static int ParallelGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params)
 {
-    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, 0);
+    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, Params, 0);
     if (!Config)
     {
         return -1;
@@ -1207,7 +1344,8 @@ static int ParallelGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstPar
     for (int i = 0; i < Config->NumSubDPs; i++)
     {
         CP_DP_Interface Interface = Config->SubDPs[i].Interface;
-        if (!Interface->getPriority || Interface->getPriority(Svcs, CP_Stream, Params) >= 0)
+        if (!Interface->getPriority ||
+            Interface->getPriority(Svcs, CP_Stream, &Config->SubDPs[i].Params) >= 0)
         {
             NumUsable++;
         }

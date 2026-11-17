@@ -12,6 +12,7 @@
 #include <fm.h>
 
 #include "SSTConfig.h"
+#include "dp_config.h"
 #include "dp_interface.h"
 #include "sst.h"
 #include "sst_data.h"
@@ -76,7 +77,7 @@ CP_DP_Interface SelectDP(CP_Services Svcs, void *CP_Stream, struct _SstParams *P
 {
     CP_DP_Interface Ret;
     DPlist List = NULL;
-    const char *Required = getenv("SST_REQUIRE_DATAPLANE");
+    const char *Required = get_dataplane_config(Params, "SST_REQUIRE_DATAPLANE");
     if (Required && (Required[0] != 0))
     {
         free(Params->DataTransport);
@@ -90,6 +91,7 @@ CP_DP_Interface SelectDP(CP_Services Svcs, void *CP_Stream, struct _SstParams *P
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadParallelDP(), "parallel", Params);
 #ifdef SST_HAVE_LIBFABRIC
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadRdmaDP(), "rdma", Params);
+    List = AddDPPossibility(Svcs, CP_Stream, List, LoadRdmaDP(), "libfabric", Params);
 #endif /* SST_HAVE_LIBFABRIC */
 
 #ifdef SST_HAVE_UCX

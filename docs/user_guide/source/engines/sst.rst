@@ -157,8 +157,8 @@ the underlying network communication mechanism to use for exchanging
 data in SST.  Generally this is chosen by SST based upon what is
 available on the current platform.  However, specifying this engine
 parameter allows overriding SST's choice.  Current allowed values are
-**"UCX"**, **"MPI"**, **"RDMA"**, **"Mercury"**, and **"WAN"**.  (**ib** and **fabric**
-are accepted as equivalent to **RDMA** and **evpath** is equivalent to **WAN**.)
+**"UCX"**, **"MPI"**, **"RDMA"**, **"Mercury"**, **"parallel"**, and **"WAN"**.  (**ib**, **fabric**,
+and **libfabric** are accepted as equivalent to **RDMA**, and **evpath** is equivalent to **WAN**.)
 Generally both the reader and writer should be using the same network
 transport, and the network transport chosen may be dictated by the
 situation.  For example, the RDMA transport generally operates only
@@ -308,7 +308,9 @@ BeginStep timeouts) and writer-side rules (like queue limit behavior) apply.
 
 The ``SST_REQUIRE_DATAPLANE`` environment variable names a data plane that must be used, overriding ``DataTransport``.  If that data plane is not available the stream fails to open instead of falling back to another one.  It is intended for validating a system or a build, and it must reach every rank, which some launchers do not do by default.
 
-Additionally to the above controls, finetuning for technical parameters of the data planes may become necessary under some circumstances. The following environment variables are read and interpreted by the data planes:
+Additionally to the above controls, finetuning for technical parameters of the data planes may become necessary under some circumstances. The following parameters are read and interpreted by the data planes. Each may be supplied as an environment variable or through ``IO.SetParameter`` with the same name. Explicit parameters take precedence over environment variables.
+
+The following environment variables are read and interpreted by the data planes:
 
 * By the **RDMA/libfabric data plane**:
 
@@ -334,9 +336,17 @@ Additionally to the above controls, finetuning for technical parameters of the d
 
 * By the **parallel data plane**:
 
-    * ``SST_PARALLEL_DP`` (alias ``SST_VIRTUAL_DP``) configures the parallel data plane as a comma-separated list of sub-dataplanes. Each entry is ``name`` or ``name@scope``, where scope is ``local``, ``remote``, or ``any`` (the default). For example, ``SST_PARALLEL_DP='ucx@local,rdma@remote'`` uses UCX for same-node peers and RDMA for peers on other nodes. The same setting must reach the writer and reader cohorts; sub-dataplanes are matched by name, so their order may differ.
+    * ``SST_PARALLEL_DP`` (alias ``SST_VIRTUAL_DP``) configures an ordered list of sub-dataplanes. Instances are separated by ``;``, the optional parameter list is introduced by ``?``, and parameters are separated by ``&``. An instance has the form ``type?option&option...``. The optional ``id=`` names the instance and the optional ``scope=local|remote|any`` filters it by host locality. Other options are dataplane parameters. For example:
 
-    * ``SST_PARALLEL_NODE_ID`` overrides the hostname used to decide whether a peer is local or remote. This is useful in containers where the hostname does not identify the physical node.
+      .. code-block:: sh
+
+         SST_PARALLEL_DP='libfabric?id=shm&FABRIC_PROVIDER=shm&FABRIC_IFACE=shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
+
+      The dataplanes are tried in order. A sub-dataplane that cannot reach a peer is skipped and the next one is used. If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``.
+
+    * ``SST_PARALLEL_NODE_ID`` overrides the hostname used by explicit ``scope=`` settings. Implicit routing does not use hostnames.
+
+    The same settings must be configured on the writer and reader; they may be supplied through environment variables or ``IO.SetParameter``. Explicit parameters take precedence over environment variables.
 
 * By the **Mercury data plane**:
 

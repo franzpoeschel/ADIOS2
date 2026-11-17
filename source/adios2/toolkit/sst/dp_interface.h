@@ -324,6 +324,16 @@ typedef int (*CP_DP_GetPriorityFunc)(CP_Services Svcs, void *CP_Stream, struct _
  */
 typedef void (*CP_DP_UnGetPriorityFunc)(CP_Services Svcs, void *CP_Stream);
 
+typedef enum
+{
+    DPPeerRouteUnknown = 0,
+    DPPeerRouteAvailable,
+    DPPeerRouteNoRoute
+} DP_PeerRouteStatus;
+
+typedef DP_PeerRouteStatus (*CP_DP_GetPeerRouteStatusFunc)(CP_Services Svcs, DP_RS_Stream Stream,
+                                                           int WriterRank);
+
 struct _CP_DP_Interface
 {
     char *DPName;
@@ -364,6 +374,7 @@ struct _CP_DP_Interface
 
     CP_DP_GetPriorityFunc getPriority; // both sides, part of DP selection process.
     CP_DP_UnGetPriorityFunc unGetPriority;
+    CP_DP_GetPeerRouteStatusFunc getPeerRouteStatus; // reader-side, optional
 };
 #define DPTraceVerbose 6
 #define DPTraceDupVerbose 5
