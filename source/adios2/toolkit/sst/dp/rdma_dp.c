@@ -280,8 +280,19 @@ static void *make_progress(void *params_)
     return NULL;
 }
 
-static int global_fabric_refcount = 0;
-static struct fid_fabric *global_fabric = NULL;
+/* Shared fi_fabric handle, keyed by provider and fabric name. Multiple
+ * dataplane instances may use different providers in one process. */
+struct _GlobalFabricEntry
+{
+    char *ProviderName;
+    char *FabricName;
+    struct fid_fabric *Fabric;
+    int RefCount;
+    struct _GlobalFabricEntry *Next;
+};
+
+/* Protected by fabric_mutex. */
+static struct _GlobalFabricEntry *GlobalFabrics = NULL;
 
 struct fabric_state
 {
@@ -295,6 +306,7 @@ struct fabric_state
     size_t addr_len;
     size_t msg_prefix_size;
     struct fid_fabric *fabric;
+    struct _GlobalFabricEntry *global_entry;
     struct fid_domain *domain;
     struct fid_ep *signal;
     struct fid_cq *cq_signal;
@@ -406,8 +418,8 @@ static char const *get_preferred_domain(struct _SstParams *Params)
     }
 }
 
-static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, CP_Services Svcs,
-                        void *CP_Stream, char const *ifname)
+static int init_fabric(struct fabric_state *fabric, struct _SstParams *Params, CP_Services Svcs,
+                       void *CP_Stream, char const *ifname)
 {
     struct fi_info *hints, *info, *originfo, *useinfo;
     struct fi_av_attr av_attr = {FI_AV_UNSPEC};
@@ -511,7 +523,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose, "no fabrics detected.\n");
         fabric->info = NULL;
-        return;
+        return EXIT_FAILURE;
     }
     fi_freeinfo(hints);
 
@@ -571,7 +583,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
                       "FABRIC_IFACE to the interface name. Check the output of fi_info "
                       "to troubleshoot this message.\n");
         fabric->info = NULL;
-        return;
+        return EXIT_FAILURE;
     }
 
     if (info->mode & FI_CONTEXT2)
@@ -651,35 +663,60 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
     if (!fabric->info)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose, "copying the fabric info failed.\n");
-        return;
+        return EXIT_FAILURE;
     }
     Svcs->verbose(CP_Stream, DPTraceVerbose,
                   "Fabric parameters to use at fabric initialization: %s\n",
                   fi_tostr(fabric->info, FI_TYPE_INFO));
 
+    const char *ProviderName = info->fabric_attr->prov_name ? info->fabric_attr->prov_name : "";
+    const char *FabricName = info->fabric_attr->name ? info->fabric_attr->name : "";
+    struct _GlobalFabricEntry *Entry = NULL;
+
     pthread_mutex_lock(&fabric_mutex);
-    if (global_fabric_refcount == 0)
+    for (Entry = GlobalFabrics; Entry; Entry = Entry->Next)
     {
-        Svcs->verbose(CP_Stream, DPSummaryVerbose, "opening fabric with provider %s\n",
-                      info->fabric_attr->prov_name);
-        result = fi_fabric(info->fabric_attr, &fabric->fabric, fabric->ctx);
-        if (result != FI_SUCCESS)
+        if (strcmp(Entry->ProviderName, ProviderName) == 0 &&
+            strcmp(Entry->FabricName, FabricName) == 0)
         {
-            Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                          "opening fabric access failed with %d (%s). This is fatal.\n", result,
-                          fi_strerror(result));
-            return;
+            break;
         }
-        global_fabric_refcount = 1;
-        global_fabric = fabric->fabric;
+    }
+    if (Entry)
+    {
+        Svcs->verbose(CP_Stream, DPSummaryVerbose, "Reusing open fabric with provider %s\n",
+                      ProviderName);
     }
     else
     {
-        Svcs->verbose(CP_Stream, DPSummaryVerbose, "Reusing open fabric with provider %s\n",
-                      info->fabric_attr->prov_name);
-        fabric->fabric = global_fabric;
-        global_fabric_refcount++;
+        struct fid_fabric *NewFabric = NULL;
+        Svcs->verbose(CP_Stream, DPSummaryVerbose, "opening fabric with provider %s\n",
+                      ProviderName);
+        result = fi_fabric(info->fabric_attr, &NewFabric, fabric->ctx);
+        if (result != FI_SUCCESS)
+        {
+            pthread_mutex_unlock(&fabric_mutex);
+            Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                          "opening fabric access failed with %d (%s). This is fatal.\n", result,
+                          fi_strerror(result));
+            return EXIT_FAILURE;
+        }
+        Entry = calloc(1, sizeof(*Entry));
+        if (!Entry)
+        {
+            pthread_mutex_unlock(&fabric_mutex);
+            fi_close((struct fid *)NewFabric);
+            return EXIT_FAILURE;
+        }
+        Entry->ProviderName = strdup(ProviderName);
+        Entry->FabricName = strdup(FabricName);
+        Entry->Fabric = NewFabric;
+        Entry->Next = GlobalFabrics;
+        GlobalFabrics = Entry;
     }
+    Entry->RefCount++;
+    fabric->fabric = Entry->Fabric;
+    fabric->global_entry = Entry;
     pthread_mutex_unlock(&fabric_mutex);
 
     result = fi_domain(fabric->fabric, info, &fabric->domain, fabric->ctx);
@@ -691,7 +728,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
         fprintf(stderr, "SST RDMA Dataplane failure.  fi_domain() has failed, which may "
                         "mean that libfabric is defaulting to the wrong interface.  Check "
                         "your FABRIC_IFACE environment variable (or specify one).\n");
-        return;
+        return EXIT_FAILURE;
     }
     info->ep_attr->type = FI_EP_RDM;
     result = fi_endpoint(fabric->domain, info, &fabric->signal, fabric->ctx);
@@ -700,7 +737,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
                       "opening endpoint failed with %d (%s). This is fatal.\n", result,
                       fi_strerror(result));
-        return;
+        return EXIT_FAILURE;
     }
 
     av_attr.type = FI_AV_MAP;
@@ -719,7 +756,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
                       "could not initialize address vector, failed with %d "
                       "(%s). This is fatal.\n",
                       result, fi_strerror(result));
-        return;
+        return EXIT_FAILURE;
     }
     result = fi_ep_bind(fabric->signal, &fabric->av->fid, 0);
     if (result != FI_SUCCESS)
@@ -728,7 +765,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
                       "could not bind endpoint to address vector, failed with "
                       "%d (%s). This is fatal.\n",
                       result, fi_strerror(result));
-        return;
+        return EXIT_FAILURE;
     }
 
     cq_attr.size = 0;
@@ -741,7 +778,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
                       "opening completion queue failed with %d (%s). This is fatal.\n", result,
                       fi_strerror(result));
-        return;
+        return EXIT_FAILURE;
     }
 
     result = fi_ep_bind(fabric->signal, &fabric->cq_signal->fid, FI_TRANSMIT | FI_RECV);
@@ -751,7 +788,7 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
                       "could not bind endpoint to completion queue, failed "
                       "with %d (%s). This is fatal.\n",
                       result, fi_strerror(result));
-        return;
+        return EXIT_FAILURE;
     }
 
     result = fi_enable(fabric->signal);
@@ -760,10 +797,11 @@ static void init_fabric(struct fabric_state *fabric, struct _SstParams *Params, 
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
                       "enable endpoint, failed with %d (%s). This is fatal.\n", result,
                       fi_strerror(result));
-        return;
+        return EXIT_FAILURE;
     }
 
     fi_freeinfo(originfo);
+    return EXIT_SUCCESS;
 }
 
 static void fini_fabric(struct fabric_state *fabric, CP_Services Svcs, void *CP_Stream)
@@ -847,26 +885,38 @@ static void fini_fabric(struct fabric_state *fabric, CP_Services Svcs, void *CP_
     }
 
     pthread_mutex_lock(&fabric_mutex);
-    global_fabric_refcount--;
-    if (global_fabric_refcount == 0)
+    struct _GlobalFabricEntry *Entry = fabric->global_entry;
+    if (Entry)
     {
-        Svcs->verbose(CP_Stream, DPSummaryVerbose,
-                      "Calling fi_close() on fabric with zero reference count.\n");
-        res = fi_close((struct fid *)global_fabric);
-        Svcs->verbose(CP_Stream, DPSummaryVerbose, "Return fi_close() is %d\n", res);
-        if (res != FI_SUCCESS)
+        Entry->RefCount--;
+        if (Entry->RefCount == 0)
         {
-            Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                          "could not close fabric, failed with %d (%s).\n", res, fi_strerror(res));
-            return;
+            Svcs->verbose(CP_Stream, DPSummaryVerbose,
+                          "Calling fi_close() on fabric with zero reference count.\n");
+            struct _GlobalFabricEntry **Link = &GlobalFabrics;
+            while (*Link && *Link != Entry)
+            {
+                Link = &(*Link)->Next;
+            }
+            if (*Link == Entry)
+            {
+                *Link = Entry->Next;
+            }
+            res = fi_close((struct fid *)Entry->Fabric);
+            Svcs->verbose(CP_Stream, DPSummaryVerbose, "Return fi_close() is %d\n", res);
+            free(Entry->ProviderName);
+            free(Entry->FabricName);
+            free(Entry);
+            fabric->global_entry = NULL;
+            if (res != FI_SUCCESS)
+            {
+                pthread_mutex_unlock(&fabric_mutex);
+                Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                              "could not close fabric, failed with %d (%s).\n", res,
+                              fi_strerror(res));
+                return;
+            }
         }
-        global_fabric = NULL;
-    }
-    else
-    {
-        Svcs->verbose(CP_Stream, DPSummaryVerbose,
-                      "Skipping fi_close() on fabric because reference count is still %d.\n",
-                      global_fabric_refcount);
     }
     pthread_mutex_unlock(&fabric_mutex);
 
@@ -1562,12 +1612,12 @@ static DP_RS_Stream RdmaInitReader(CP_Services Svcs, void *CP_Stream, void **Rea
 
 #endif /* SST_HAVE_CRAY_DRC */
 
-    init_fabric(Stream->Fabric, Stream->Params, Svcs, CP_Stream, required_device);
+    int init_result = init_fabric(Stream->Fabric, Stream->Params, Svcs, CP_Stream, required_device);
     if (required_device)
     {
         free(required_device);
     }
-    if (!Fabric->info)
+    if (init_result != EXIT_SUCCESS || !Fabric->info)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose, "Could not find a valid transport fabric.\n");
         return NULL;
@@ -1766,13 +1816,13 @@ static DP_WS_Stream RdmaInitWriter(CP_Services Svcs, void *CP_Stream, struct _Ss
     set_long_attr(DPAttrs, attr_atom_from_string("RDMA_DRC_CRED"), attr_cred);
 #endif /* SST_HAVE_CRAY_DRC */
 
-    init_fabric(Stream->Fabric, Params, Svcs, CP_Stream, required_device);
+    int init_result = init_fabric(Stream->Fabric, Params, Svcs, CP_Stream, required_device);
     if (required_device)
     {
         free(required_device);
     }
     Fabric = Stream->Fabric;
-    if (!Fabric->info)
+    if (init_result != EXIT_SUCCESS || !Fabric->info)
     {
         Svcs->verbose(CP_Stream, DPTraceDupVerbose, "Could not find a valid transport fabric.\n");
         goto err_out;
