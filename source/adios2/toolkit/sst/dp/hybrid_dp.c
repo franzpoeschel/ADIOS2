@@ -126,6 +126,7 @@ typedef struct _Hybrid_WSR_Stream
 {
     Hybrid_WS_Stream WS_Stream;
     DP_WSR_Stream *SubWSR;
+    CP_DP_Interface *Interfaces;
     size_t NumSubDPs;
     HybridContactInfo MyContact;
 } *Hybrid_WSR_Stream;
@@ -134,6 +135,7 @@ typedef struct _HybridCompletionHandle
 {
     CP_DP_Interface Interface;
     DP_CompletionHandle Handle;
+    void *SubTimestepInfo;
 } *HybridCompletionHandle;
 
 typedef struct _HybridSubDPRegistry
@@ -232,7 +234,7 @@ static int HybridParseScope(char *Scope)
     {
         return HybridScopeRemote;
     }
-    return HybridScopeAny;
+    return -1;
 }
 
 static int HybridHexValue(char Character)
@@ -457,11 +459,31 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                             }
                             else if (strcasecmp(Key, "scope") == 0)
                             {
-                                Scope = HybridParseScope(Value);
+                                int ParsedScope = HybridParseScope(Value);
+                                if (ParsedScope < 0)
+                                {
+                                    if (Svcs)
+                                    {
+                                        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                                                      "Hybrid DataPlane: unknown scope \"%s\", "
+                                                      "using \"any\".\n",
+                                                      Value);
+                                    }
+                                }
+                                else
+                                {
+                                    Scope = (enum HybridSubDPScope)ParsedScope;
+                                }
                             }
-                            else
+                            else if (SST_AddDataPlaneParam(&Overrides, Key, Value) != 0)
                             {
-                                SST_AddDataPlaneParam(&Overrides, Key, Value);
+                                if (Svcs)
+                                {
+                                    Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                                                  "Hybrid DataPlane: failed to add option "
+                                                  "\"%s\".\n",
+                                                  Key);
+                                }
                             }
                         }
                     }
@@ -489,6 +511,13 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
             }
         }
         Cursor = Separator ? Separator + 1 : NULL;
+    }
+    if (Cursor && *Cursor && Svcs)
+    {
+        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                      "Hybrid DataPlane: ignoring sub-dataplane entries beyond the maximum of "
+                      "%d.\n",
+                      HYBRID_MAX_SUB_DPS);
     }
     free(Copy);
 
@@ -857,6 +886,11 @@ static DP_WSR_Stream HybridInitWriterPerReader(CP_Services Svcs, DP_WS_Stream WS
     WSR->WS_Stream = Stream;
     WSR->NumSubDPs = Stream->NumSubDPs;
     WSR->SubWSR = calloc(Stream->NumSubDPs, sizeof(*WSR->SubWSR));
+    WSR->Interfaces = calloc(Stream->NumSubDPs, sizeof(*WSR->Interfaces));
+    for (size_t i = 0; i < Stream->NumSubDPs; i++)
+    {
+        WSR->Interfaces[i] = Stream->SubDPs[i].Interface;
+    }
 
     void **ContactInfo = calloc(Stream->NumSubDPs, sizeof(*ContactInfo));
     int *Available = calloc(Stream->NumSubDPs, sizeof(*Available));
@@ -1070,14 +1104,15 @@ static void *HybridReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v, 
 
         DP_CompletionHandle Handle = SubDP->Interface->readRemoteMemory(
             Svcs, SubDP->RS_Stream, Rank, Timestep, Offset, Length, Buffer, SubTimestepInfo);
-        free(SubTimestepInfo);
         if (Handle)
         {
             HybridCompletionHandle Completion = malloc(sizeof(*Completion));
             Completion->Interface = SubDP->Interface;
             Completion->Handle = Handle;
+            Completion->SubTimestepInfo = SubTimestepInfo;
             return Completion;
         }
+        free(SubTimestepInfo);
     }
     return NULL;
 }
@@ -1094,6 +1129,7 @@ static int HybridWaitForCompletion(CP_Services Svcs, void *Handle_v)
     {
         Ret = Completion->Interface->waitForCompletion(Svcs, Completion->Handle);
     }
+    free(Completion->SubTimestepInfo);
     free(Completion);
     return Ret;
 }
@@ -1283,13 +1319,13 @@ static void HybridDestroyWriterPerReader(CP_Services Svcs, DP_WSR_Stream WSR_Str
     }
     for (size_t i = 0; i < WSR->NumSubDPs; i++)
     {
-        HybridSubDPState SubDP = &WSR->WS_Stream->SubDPs[i];
-        if (WSR->SubWSR[i] && SubDP->Interface->destroyWriterPerReader)
+        if (WSR->SubWSR[i] && WSR->Interfaces[i] && WSR->Interfaces[i]->destroyWriterPerReader)
         {
-            SubDP->Interface->destroyWriterPerReader(Svcs, WSR->SubWSR[i]);
+            WSR->Interfaces[i]->destroyWriterPerReader(Svcs, WSR->SubWSR[i]);
         }
     }
     free(WSR->SubWSR);
+    free(WSR->Interfaces);
     HybridFreeContact(WSR->MyContact);
     free(WSR);
 }
