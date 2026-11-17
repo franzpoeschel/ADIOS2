@@ -34,9 +34,9 @@ endif()
 gtest_add_tests_helper(SstDataplaneConfig MPI_NONE "" Engine.SST. "")
 
 if(ADIOS2_HAVE_SST AND ADIOS2_HAVE_MPI)
-  add_executable(Test.SST.ParallelHarness SstParallelHarness.cpp)
-  target_link_libraries(Test.SST.ParallelHarness PRIVATE
+  add_executable(Test.SST.HybridHarness SstHybridHarness.cpp)
+  target_link_libraries(Test.SST.HybridHarness PRIVATE
     adios2::cxx_mpi adios2::c_mpi adios2_core_mpi MPI::MPI_CXX)
-  set_target_properties(Test.SST.ParallelHarness PROPERTIES
+  set_target_properties(Test.SST.HybridHarness PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE)
 endif()

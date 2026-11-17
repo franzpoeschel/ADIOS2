@@ -28,119 +28,119 @@
 #define strdup _strdup
 #endif
 
-#define PARALLEL_MAX_SUB_DPS 8
+#define HYBRID_MAX_SUB_DPS 8
 
-enum ParallelSubDPScope
+enum HybridSubDPScope
 {
-    ParallelScopeAny = 0,
-    ParallelScopeLocal,
-    ParallelScopeRemote
+    HybridScopeAny = 0,
+    HybridScopeLocal,
+    HybridScopeRemote
 };
 
-typedef struct _ParallelSubDPConfig
+typedef struct _HybridSubDPConfig
 {
     CP_DP_Interface Interface;
     char *TypeName;
     char *Name;
-    enum ParallelSubDPScope Scope;
+    enum HybridSubDPScope Scope;
     struct _SstParams Params;
-} *ParallelSubDPConfig;
+} *HybridSubDPConfig;
 
-typedef struct _ParallelConfig
+typedef struct _HybridConfig
 {
     int NumSubDPs;
-    struct _ParallelSubDPConfig SubDPs[PARALLEL_MAX_SUB_DPS];
+    struct _HybridSubDPConfig SubDPs[HYBRID_MAX_SUB_DPS];
     FFSContext FFS;
-    FMFormat ReaderContactFormats[PARALLEL_MAX_SUB_DPS];
-    FMFormat WriterContactFormats[PARALLEL_MAX_SUB_DPS];
-    FMFormat TimestepInfoFormats[PARALLEL_MAX_SUB_DPS];
-} *ParallelConfig;
+    FMFormat ReaderContactFormats[HYBRID_MAX_SUB_DPS];
+    FMFormat WriterContactFormats[HYBRID_MAX_SUB_DPS];
+    FMFormat TimestepInfoFormats[HYBRID_MAX_SUB_DPS];
+} *HybridConfig;
 
-typedef struct _ParallelSubDPInfo
+typedef struct _HybridSubDPInfo
 {
     char *Name;
     int Length;
     int Available;
     char *Address;
-} *ParallelSubDPInfo;
+} *HybridSubDPInfo;
 
-typedef struct _ParallelContactInfo
+typedef struct _HybridContactInfo
 {
     int NumSubDPs;
     char *Hostname;
-    struct _ParallelSubDPInfo *SubInfo;
-} *ParallelContactInfo;
+    struct _HybridSubDPInfo *SubInfo;
+} *HybridContactInfo;
 
-typedef struct _ParallelTimestepInfo
+typedef struct _HybridTimestepInfo
 {
     int NumSubInfos;
-    struct _ParallelSubDPInfo *SubInfo;
-} *ParallelTimestepInfo;
+    struct _HybridSubDPInfo *SubInfo;
+} *HybridTimestepInfo;
 
-typedef struct _ParallelSubDPState
+typedef struct _HybridSubDPState
 {
     CP_DP_Interface Interface;
     const char *Name;
-    enum ParallelSubDPScope Scope;
+    enum HybridSubDPScope Scope;
     DP_RS_Stream RS_Stream;
     DP_WS_Stream WS_Stream;
     DP_WSR_Stream WSR_Stream;
     int Ready;
-} *ParallelSubDPState;
+} *HybridSubDPState;
 
-typedef struct _ParallelTimestepEntry
+typedef struct _HybridTimestepEntry
 {
     size_t Timestep;
-    ParallelTimestepInfo Info;
-    struct _ParallelTimestepEntry *Next;
-} *ParallelTimestepEntry;
+    HybridTimestepInfo Info;
+    struct _HybridTimestepEntry *Next;
+} *HybridTimestepEntry;
 
-typedef struct _Parallel_RS_Stream
+typedef struct _Hybrid_RS_Stream
 {
     CP_Services Svcs;
     void *CP_Stream;
-    ParallelConfig Config;
+    HybridConfig Config;
     char *Hostname;
     int Rank;
     int WriterCohortSize;
     size_t NumSubDPs;
-    struct _ParallelSubDPState *SubDPs;
+    struct _HybridSubDPState *SubDPs;
     char **WriterHostnames;
-    ParallelContactInfo MyContact;
-} *Parallel_RS_Stream;
+    HybridContactInfo MyContact;
+} *Hybrid_RS_Stream;
 
-typedef struct _Parallel_WS_Stream
+typedef struct _Hybrid_WS_Stream
 {
     CP_Services Svcs;
     void *CP_Stream;
-    ParallelConfig Config;
+    HybridConfig Config;
     int Rank;
     char *Hostname;
     size_t NumSubDPs;
-    struct _ParallelSubDPState *SubDPs;
-    ParallelTimestepEntry Timesteps;
+    struct _HybridSubDPState *SubDPs;
+    HybridTimestepEntry Timesteps;
     int HasTimestepInfo;
-} *Parallel_WS_Stream;
+} *Hybrid_WS_Stream;
 
-typedef struct _Parallel_WSR_Stream
+typedef struct _Hybrid_WSR_Stream
 {
-    Parallel_WS_Stream WS_Stream;
+    Hybrid_WS_Stream WS_Stream;
     DP_WSR_Stream *SubWSR;
     size_t NumSubDPs;
-    ParallelContactInfo MyContact;
-} *Parallel_WSR_Stream;
+    HybridContactInfo MyContact;
+} *Hybrid_WSR_Stream;
 
-typedef struct _ParallelCompletionHandle
+typedef struct _HybridCompletionHandle
 {
     CP_DP_Interface Interface;
     DP_CompletionHandle Handle;
-} *ParallelCompletionHandle;
+} *HybridCompletionHandle;
 
-typedef struct _ParallelSubDPRegistry
+typedef struct _HybridSubDPRegistry
 {
     const char *Name;
     CP_DP_Interface (*Load)(void);
-} *ParallelSubDPRegistry;
+} *HybridSubDPRegistry;
 
 extern CP_DP_Interface LoadEVpathDP();
 #ifdef SST_HAVE_LIBFABRIC
@@ -159,29 +159,33 @@ extern CP_DP_Interface LoadMercuryDP();
 extern CP_DP_Interface LoadMpiDP();
 #endif
 
-static struct _ParallelSubDPRegistry ParallelRegistry[] = {{"evpath", LoadEVpathDP},
+static struct _HybridSubDPRegistry HybridRegistry[] = {{"evpath", LoadEVpathDP},
 #ifdef SST_HAVE_LIBFABRIC
-                                                           {"rdma", LoadRdmaDP},
-                                                           {"libfabric", LoadRdmaDP},
+                                                       {"rdma", LoadRdmaDP},
+                                                       {"libfabric", LoadRdmaDP},
 #endif
 #ifdef SST_HAVE_UCX
-                                                           {"ucx", LoadUcxDP},
+                                                       {"ucx", LoadUcxDP},
 #endif
 #ifdef SST_HAVE_DAOS
-                                                           {"daos", LoadDaosDP},
+                                                       {"daos", LoadDaosDP},
 #endif
 #ifdef SST_HAVE_MERCURY
-                                                           {"mercury", LoadMercuryDP},
+                                                       {"mercury", LoadMercuryDP},
 #endif
 #ifdef ADIOS2_HAVE_MPI
-                                                           {"mpi", LoadMpiDP},
+                                                       {"mpi", LoadMpiDP},
 #endif
-                                                           {NULL, NULL}};
+                                                       {NULL, NULL}};
 
-static char *ParallelDupHostname(struct _SstParams *Params)
+static char *HybridDupHostname(struct _SstParams *Params)
 {
     char Buffer[256] = {0};
-    const char *Override = get_dataplane_config(Params, "SST_PARALLEL_NODE_ID");
+    const char *Override = get_dataplane_config(Params, "SST_HYBRID_NODE_ID");
+    if (!Override || !Override[0])
+    {
+        Override = get_dataplane_config(Params, "SST_PARALLEL_NODE_ID");
+    }
     if (Override && Override[0])
     {
         return strdup(Override);
@@ -201,7 +205,7 @@ static char *ParallelDupHostname(struct _SstParams *Params)
     return strdup(Buffer);
 }
 
-static char *ParallelTrim(char *String)
+static char *HybridTrim(char *String)
 {
     while (*String && isspace((unsigned char)*String))
     {
@@ -216,26 +220,26 @@ static char *ParallelTrim(char *String)
     return String;
 }
 
-static int ParallelParseScope(char *Scope)
+static int HybridParseScope(char *Scope)
 {
     if (!Scope || !Scope[0])
     {
-        return ParallelScopeAny;
+        return HybridScopeAny;
     }
     if (strcasecmp(Scope, "local") == 0 || strcasecmp(Scope, "node") == 0 ||
         strcasecmp(Scope, "shm") == 0)
     {
-        return ParallelScopeLocal;
+        return HybridScopeLocal;
     }
     if (strcasecmp(Scope, "remote") == 0 || strcasecmp(Scope, "network") == 0 ||
         strcasecmp(Scope, "rdma") == 0)
     {
-        return ParallelScopeRemote;
+        return HybridScopeRemote;
     }
-    return ParallelScopeAny;
+    return HybridScopeAny;
 }
 
-static int ParallelHexValue(char Character)
+static int HybridHexValue(char Character)
 {
     if (Character >= '0' && Character <= '9')
     {
@@ -252,15 +256,15 @@ static int ParallelHexValue(char Character)
     return -1;
 }
 
-static void ParallelPercentDecode(char *String)
+static void HybridPercentDecode(char *String)
 {
     char *Read = String;
     char *Write = String;
     while (*Read)
     {
-        if (*Read == '%' && ParallelHexValue(Read[1]) >= 0 && ParallelHexValue(Read[2]) >= 0)
+        if (*Read == '%' && HybridHexValue(Read[1]) >= 0 && HybridHexValue(Read[2]) >= 0)
         {
-            *Write++ = (char)((ParallelHexValue(Read[1]) << 4) | ParallelHexValue(Read[2]));
+            *Write++ = (char)((HybridHexValue(Read[1]) << 4) | HybridHexValue(Read[2]));
             Read += 3;
         }
         else
@@ -271,19 +275,19 @@ static void ParallelPercentDecode(char *String)
     *Write = '\0';
 }
 
-static CP_DP_Interface ParallelLoadSubDP(const char *Name)
+static CP_DP_Interface HybridLoadSubDP(const char *Name)
 {
-    for (int i = 0; ParallelRegistry[i].Name; i++)
+    for (int i = 0; HybridRegistry[i].Name; i++)
     {
-        if (strcasecmp(Name, ParallelRegistry[i].Name) == 0)
+        if (strcasecmp(Name, HybridRegistry[i].Name) == 0)
         {
-            return ParallelRegistry[i].Load();
+            return HybridRegistry[i].Load();
         }
     }
     return NULL;
 }
 
-static void ParallelFreeContact(ParallelContactInfo Contact)
+static void HybridFreeContact(HybridContactInfo Contact)
 {
     if (!Contact)
     {
@@ -302,7 +306,7 @@ static void ParallelFreeContact(ParallelContactInfo Contact)
     free(Contact);
 }
 
-static void ParallelFreeTimestepInfo(ParallelTimestepInfo Info)
+static void HybridFreeTimestepInfo(HybridTimestepInfo Info)
 {
     if (!Info)
     {
@@ -320,7 +324,7 @@ static void ParallelFreeTimestepInfo(ParallelTimestepInfo Info)
     free(Info);
 }
 
-static void ParallelConfigDestroy(ParallelConfig Config)
+static void HybridConfigDestroy(HybridConfig Config)
 {
     if (!Config)
     {
@@ -339,7 +343,7 @@ static void ParallelConfigDestroy(ParallelConfig Config)
     free(Config);
 }
 
-static int ParallelAssignDefaultIds(CP_Services Svcs, void *CP_Stream, ParallelConfig Config)
+static int HybridAssignDefaultIds(CP_Services Svcs, void *CP_Stream, HybridConfig Config)
 {
     for (int i = 0; i < Config->NumSubDPs; i++)
     {
@@ -369,7 +373,7 @@ static int ParallelAssignDefaultIds(CP_Services Svcs, void *CP_Stream, ParallelC
                 if (Svcs)
                 {
                     Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                                  "Parallel DataPlane: duplicate sub-dataplane id \"%s\".\n",
+                                  "Hybrid DataPlane: duplicate sub-dataplane id \"%s\".\n",
                                   Config->SubDPs[i].Name);
                 }
                 return -1;
@@ -379,10 +383,14 @@ static int ParallelAssignDefaultIds(CP_Services Svcs, void *CP_Stream, ParallelC
     return 0;
 }
 
-static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
-                                           struct _SstParams *Params, int RegisterFormats)
+static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params,
+                                       int RegisterFormats)
 {
-    const char *ConfigString = get_dataplane_config(Params, "SST_PARALLEL_DP");
+    const char *ConfigString = get_dataplane_config(Params, "SST_HYBRID_DP");
+    if (!ConfigString || !ConfigString[0])
+    {
+        ConfigString = get_dataplane_config(Params, "SST_PARALLEL_DP");
+    }
     if (!ConfigString || !ConfigString[0])
     {
         ConfigString = get_dataplane_config(Params, "SST_VIRTUAL_DP");
@@ -392,17 +400,17 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
         return NULL;
     }
 
-    ParallelConfig Config = calloc(1, sizeof(*Config));
+    HybridConfig Config = calloc(1, sizeof(*Config));
     char *Copy = strdup(ConfigString);
     char *Cursor = Copy;
-    while (Cursor && *Cursor && Config->NumSubDPs < PARALLEL_MAX_SUB_DPS)
+    while (Cursor && *Cursor && Config->NumSubDPs < HYBRID_MAX_SUB_DPS)
     {
         char *Separator = strchr(Cursor, ';');
         if (Separator)
         {
             *Separator = '\0';
         }
-        char *Entry = ParallelTrim(Cursor);
+        char *Entry = HybridTrim(Cursor);
         if (Entry[0])
         {
             char *Options = strchr(Entry, '?');
@@ -410,21 +418,21 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
             {
                 *Options++ = '\0';
             }
-            char *TypeName = ParallelTrim(Entry);
-            CP_DP_Interface Interface = ParallelLoadSubDP(TypeName);
+            char *TypeName = HybridTrim(Entry);
+            CP_DP_Interface Interface = HybridLoadSubDP(TypeName);
             if (!Interface)
             {
                 if (Svcs)
                 {
                     Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                                  "Parallel DataPlane: unknown sub-dataplane \"%s\".\n", TypeName);
+                                  "Hybrid DataPlane: unknown sub-dataplane \"%s\".\n", TypeName);
                 }
             }
             else
             {
                 struct _SstParams Overrides = {0};
                 char *InstanceId = NULL;
-                enum ParallelSubDPScope Scope = ParallelScopeAny;
+                enum HybridSubDPScope Scope = HybridScopeAny;
                 char *OptionCursor = Options;
                 while (OptionCursor && *OptionCursor)
                 {
@@ -433,7 +441,7 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
                     {
                         *Ampersand = '\0';
                     }
-                    char *Option = ParallelTrim(OptionCursor);
+                    char *Option = HybridTrim(OptionCursor);
                     if (Option[0])
                     {
                         char *Equals = strchr(Option, '=');
@@ -442,7 +450,7 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
                             if (Svcs)
                             {
                                 Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                                              "Parallel DataPlane: ignoring malformed option "
+                                              "Hybrid DataPlane: ignoring malformed option "
                                               "\"%s\".\n",
                                               Option);
                             }
@@ -450,10 +458,10 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
                         else
                         {
                             *Equals++ = '\0';
-                            char *Key = ParallelTrim(Option);
-                            char *Value = ParallelTrim(Equals);
-                            ParallelPercentDecode(Key);
-                            ParallelPercentDecode(Value);
+                            char *Key = HybridTrim(Option);
+                            char *Value = HybridTrim(Equals);
+                            HybridPercentDecode(Key);
+                            HybridPercentDecode(Value);
                             if (strcasecmp(Key, "id") == 0)
                             {
                                 free(InstanceId);
@@ -461,7 +469,7 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
                             }
                             else if (strcasecmp(Key, "scope") == 0)
                             {
-                                Scope = ParallelParseScope(Value);
+                                Scope = HybridParseScope(Value);
                             }
                             else
                             {
@@ -473,7 +481,7 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
                 }
 
                 int Index = Config->NumSubDPs++;
-                struct _ParallelSubDPConfig *SubDP = &Config->SubDPs[Index];
+                struct _HybridSubDPConfig *SubDP = &Config->SubDPs[Index];
                 SubDP->Interface = Interface;
                 SubDP->TypeName = strdup(TypeName);
                 SubDP->Name = InstanceId;
@@ -498,12 +506,12 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
 
     if (Config->NumSubDPs == 0)
     {
-        ParallelConfigDestroy(Config);
+        HybridConfigDestroy(Config);
         return NULL;
     }
-    if (ParallelAssignDefaultIds(Svcs, CP_Stream, Config) != 0)
+    if (HybridAssignDefaultIds(Svcs, CP_Stream, Config) != 0)
     {
-        ParallelConfigDestroy(Config);
+        HybridConfigDestroy(Config);
         return NULL;
     }
 
@@ -536,51 +544,49 @@ static ParallelConfig ParallelConfigCreate(CP_Services Svcs, void *CP_Stream,
     return Config;
 }
 
-static FMField ParallelSubDPInfoList[] = {
-    {"Name", "string", sizeof(char *), FMOffset(ParallelSubDPInfo, Name)},
-    {"Length", "integer", sizeof(int), FMOffset(ParallelSubDPInfo, Length)},
-    {"Available", "integer", sizeof(int), FMOffset(ParallelSubDPInfo, Available)},
-    {"Address", "char[Length]", sizeof(char), FMOffset(ParallelSubDPInfo, Address)},
+static FMField HybridSubDPInfoList[] = {
+    {"Name", "string", sizeof(char *), FMOffset(HybridSubDPInfo, Name)},
+    {"Length", "integer", sizeof(int), FMOffset(HybridSubDPInfo, Length)},
+    {"Available", "integer", sizeof(int), FMOffset(HybridSubDPInfo, Available)},
+    {"Address", "char[Length]", sizeof(char), FMOffset(HybridSubDPInfo, Address)},
     {NULL, NULL, 0, 0}};
 
-static FMField ParallelReaderContactList[] = {
-    {"NumSubDPs", "integer", sizeof(int), FMOffset(ParallelContactInfo, NumSubDPs)},
-    {"Hostname", "string", sizeof(char *), FMOffset(ParallelContactInfo, Hostname)},
-    {"SubInfo", "ParallelSubDPInfo[NumSubDPs]", sizeof(struct _ParallelSubDPInfo),
-     FMOffset(ParallelContactInfo, SubInfo)},
+static FMField HybridReaderContactList[] = {
+    {"NumSubDPs", "integer", sizeof(int), FMOffset(HybridContactInfo, NumSubDPs)},
+    {"Hostname", "string", sizeof(char *), FMOffset(HybridContactInfo, Hostname)},
+    {"SubInfo", "HybridSubDPInfo[NumSubDPs]", sizeof(struct _HybridSubDPInfo),
+     FMOffset(HybridContactInfo, SubInfo)},
     {NULL, NULL, 0, 0}};
 
-static FMStructDescRec ParallelReaderContactStructs[] = {
-    {"ParallelReaderContactInfo", ParallelReaderContactList, sizeof(struct _ParallelContactInfo),
-     NULL},
-    {"ParallelSubDPInfo", ParallelSubDPInfoList, sizeof(struct _ParallelSubDPInfo), NULL},
+static FMStructDescRec HybridReaderContactStructs[] = {
+    {"HybridReaderContactInfo", HybridReaderContactList, sizeof(struct _HybridContactInfo), NULL},
+    {"HybridSubDPInfo", HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
-static FMField ParallelWriterContactList[] = {
-    {"NumSubDPs", "integer", sizeof(int), FMOffset(ParallelContactInfo, NumSubDPs)},
-    {"Hostname", "string", sizeof(char *), FMOffset(ParallelContactInfo, Hostname)},
-    {"SubInfo", "ParallelSubDPInfo[NumSubDPs]", sizeof(struct _ParallelSubDPInfo),
-     FMOffset(ParallelContactInfo, SubInfo)},
+static FMField HybridWriterContactList[] = {
+    {"NumSubDPs", "integer", sizeof(int), FMOffset(HybridContactInfo, NumSubDPs)},
+    {"Hostname", "string", sizeof(char *), FMOffset(HybridContactInfo, Hostname)},
+    {"SubInfo", "HybridSubDPInfo[NumSubDPs]", sizeof(struct _HybridSubDPInfo),
+     FMOffset(HybridContactInfo, SubInfo)},
     {NULL, NULL, 0, 0}};
 
-static FMStructDescRec ParallelWriterContactStructs[] = {
-    {"ParallelWriterContactInfo", ParallelWriterContactList, sizeof(struct _ParallelContactInfo),
-     NULL},
-    {"ParallelSubDPInfo", ParallelSubDPInfoList, sizeof(struct _ParallelSubDPInfo), NULL},
+static FMStructDescRec HybridWriterContactStructs[] = {
+    {"HybridWriterContactInfo", HybridWriterContactList, sizeof(struct _HybridContactInfo), NULL},
+    {"HybridSubDPInfo", HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
-static FMField ParallelTimestepInfoList[] = {
-    {"NumSubInfos", "integer", sizeof(int), FMOffset(ParallelTimestepInfo, NumSubInfos)},
-    {"SubInfo", "ParallelSubDPInfo[NumSubInfos]", sizeof(struct _ParallelSubDPInfo),
-     FMOffset(ParallelTimestepInfo, SubInfo)},
+static FMField HybridTimestepInfoList[] = {
+    {"NumSubInfos", "integer", sizeof(int), FMOffset(HybridTimestepInfo, NumSubInfos)},
+    {"SubInfo", "HybridSubDPInfo[NumSubInfos]", sizeof(struct _HybridSubDPInfo),
+     FMOffset(HybridTimestepInfo, SubInfo)},
     {NULL, NULL, 0, 0}};
 
-static FMStructDescRec ParallelTimestepInfoStructs[] = {
-    {"ParallelTimestepInfo", ParallelTimestepInfoList, sizeof(struct _ParallelTimestepInfo), NULL},
-    {"ParallelSubDPInfo", ParallelSubDPInfoList, sizeof(struct _ParallelSubDPInfo), NULL},
+static FMStructDescRec HybridTimestepInfoStructs[] = {
+    {"HybridTimestepInfo", HybridTimestepInfoList, sizeof(struct _HybridTimestepInfo), NULL},
+    {"HybridSubDPInfo", HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
-static void ParallelEncodeSubInfo(FMFormat Format, void *Info, ParallelSubDPInfo Result)
+static void HybridEncodeSubInfo(FMFormat Format, void *Info, HybridSubDPInfo Result)
 {
     Result->Length = 0;
     Result->Address = NULL;
@@ -600,7 +606,7 @@ static void ParallelEncodeSubInfo(FMFormat Format, void *Info, ParallelSubDPInfo
     free_FFSBuffer(Buffer);
 }
 
-static void *ParallelDecodeSubInfoReal(FFSContext Context, ParallelSubDPInfo Info)
+static void *HybridDecodeSubInfoReal(FFSContext Context, HybridSubDPInfo Info)
 {
     if (!Info || !Info->Available || Info->Length <= 0 || !Info->Address)
     {
@@ -628,22 +634,21 @@ static void *ParallelDecodeSubInfoReal(FFSContext Context, ParallelSubDPInfo Inf
     return Buffer;
 }
 
-static ParallelContactInfo ParallelMakeContact(ParallelConfig Config, FMFormat *Formats,
-                                               void **ContactInfo, int *Available,
-                                               const char *Hostname)
+static HybridContactInfo HybridMakeContact(HybridConfig Config, FMFormat *Formats,
+                                           void **ContactInfo, int *Available, const char *Hostname)
 {
     int NumSubDPs = Config->NumSubDPs;
-    ParallelContactInfo Contact = calloc(1, sizeof(*Contact));
+    HybridContactInfo Contact = calloc(1, sizeof(*Contact));
     Contact->NumSubDPs = NumSubDPs;
     Contact->Hostname = strdup(Hostname ? Hostname : "unknown");
-    Contact->SubInfo = calloc(NumSubDPs, sizeof(struct _ParallelSubDPInfo));
+    Contact->SubInfo = calloc(NumSubDPs, sizeof(struct _HybridSubDPInfo));
     for (int i = 0; i < NumSubDPs; i++)
     {
         Contact->SubInfo[i].Name = strdup(Config->SubDPs[i].Name);
         Contact->SubInfo[i].Available = Available[i];
         if (Available[i])
         {
-            ParallelEncodeSubInfo(Formats[i], ContactInfo[i], &Contact->SubInfo[i]);
+            HybridEncodeSubInfo(Formats[i], ContactInfo[i], &Contact->SubInfo[i]);
             if (Formats[i] && ContactInfo[i] && Contact->SubInfo[i].Length == 0)
             {
                 Contact->SubInfo[i].Available = 0;
@@ -653,7 +658,7 @@ static ParallelContactInfo ParallelMakeContact(ParallelConfig Config, FMFormat *
     return Contact;
 }
 
-static int ParallelFindSlot(ParallelSubDPInfo Slots, int NumSlots, const char *Name)
+static int HybridFindSlot(HybridSubDPInfo Slots, int NumSlots, const char *Name)
 {
     if (!Slots || !Name)
     {
@@ -669,7 +674,7 @@ static int ParallelFindSlot(ParallelSubDPInfo Slots, int NumSlots, const char *N
     return -1;
 }
 
-static int ParallelSameHost(Parallel_RS_Stream Stream, int Rank)
+static int HybridSameHost(Hybrid_RS_Stream Stream, int Rank)
 {
     if (!Stream->Hostname)
     {
@@ -686,7 +691,7 @@ static int ParallelSameHost(Parallel_RS_Stream Stream, int Rank)
     return strcmp(Stream->Hostname, Stream->WriterHostnames[Rank]) == 0;
 }
 
-static int ParallelSubDPIsCandidate(Parallel_RS_Stream Stream, size_t Index, int SameHost)
+static int HybridSubDPIsCandidate(Hybrid_RS_Stream Stream, size_t Index, int SameHost)
 {
     if (!Stream->SubDPs[Index].Ready || !Stream->SubDPs[Index].RS_Stream)
     {
@@ -698,30 +703,30 @@ static int ParallelSubDPIsCandidate(Parallel_RS_Stream Stream, size_t Index, int
     }
     switch (Stream->SubDPs[Index].Scope)
     {
-    case ParallelScopeLocal:
+    case HybridScopeLocal:
         return SameHost;
-    case ParallelScopeRemote:
+    case HybridScopeRemote:
         return !SameHost;
     default:
         return 1;
     }
 }
 
-static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
-                                       void **ReaderContactInfoPtr, struct _SstParams *Params,
-                                       attr_list WriterContact, SstStats Stats)
+static DP_RS_Stream HybridInitReader(CP_Services Svcs, void *CP_Stream, void **ReaderContactInfoPtr,
+                                     struct _SstParams *Params, attr_list WriterContact,
+                                     SstStats Stats)
 {
-    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, Params, 1);
+    HybridConfig Config = HybridConfigCreate(Svcs, CP_Stream, Params, 1);
     if (!Config)
     {
         return NULL;
     }
 
-    Parallel_RS_Stream Stream = calloc(1, sizeof(*Stream));
+    Hybrid_RS_Stream Stream = calloc(1, sizeof(*Stream));
     Stream->Svcs = Svcs;
     Stream->CP_Stream = CP_Stream;
     Stream->Config = Config;
-    Stream->Hostname = ParallelDupHostname(Params);
+    Stream->Hostname = HybridDupHostname(Params);
     Stream->NumSubDPs = (size_t)Config->NumSubDPs;
     Stream->SubDPs = calloc(Stream->NumSubDPs, sizeof(*Stream->SubDPs));
 
@@ -731,7 +736,7 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
 
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         SubDP->Interface = Config->SubDPs[i].Interface;
         SubDP->Name = Config->SubDPs[i].Name;
         SubDP->Scope = Config->SubDPs[i].Scope;
@@ -751,19 +756,19 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
     if (NumAvailable == 0)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                      "Parallel DataPlane: none of the configured sub-dataplanes initialized "
+                      "Hybrid DataPlane: none of the configured sub-dataplanes initialized "
                       "successfully on the reader side.\n");
         free(ContactInfo);
         free(Available);
         free(Stream->SubDPs);
         free(Stream->Hostname);
-        ParallelConfigDestroy(Config);
+        HybridConfigDestroy(Config);
         free(Stream);
         return NULL;
     }
 
-    Stream->MyContact = ParallelMakeContact(Config, Config->ReaderContactFormats, ContactInfo,
-                                            Available, Stream->Hostname);
+    Stream->MyContact = HybridMakeContact(Config, Config->ReaderContactFormats, ContactInfo,
+                                          Available, Stream->Hostname);
     free(ContactInfo);
     free(Available);
 
@@ -771,9 +776,9 @@ static DP_RS_Stream ParallelInitReader(CP_Services Svcs, void *CP_Stream,
     return Stream;
 }
 
-static void ParallelDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
+static void HybridDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
 {
-    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
+    Hybrid_RS_Stream Stream = (Hybrid_RS_Stream)RS_Stream_v;
     if (!Stream)
     {
         return;
@@ -793,34 +798,34 @@ static void ParallelDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
         }
         free(Stream->WriterHostnames);
     }
-    ParallelFreeContact(Stream->MyContact);
-    ParallelConfigDestroy(Stream->Config);
+    HybridFreeContact(Stream->MyContact);
+    HybridConfigDestroy(Stream->Config);
     free(Stream->SubDPs);
     free(Stream->Hostname);
     free(Stream);
 }
 
-static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params,
-                                       attr_list DPAttrs, SstStats Stats)
+static DP_WS_Stream HybridInitWriter(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params,
+                                     attr_list DPAttrs, SstStats Stats)
 {
-    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, Params, 1);
+    HybridConfig Config = HybridConfigCreate(Svcs, CP_Stream, Params, 1);
     if (!Config)
     {
         return NULL;
     }
 
-    Parallel_WS_Stream Stream = calloc(1, sizeof(*Stream));
+    Hybrid_WS_Stream Stream = calloc(1, sizeof(*Stream));
     Stream->Svcs = Svcs;
     Stream->CP_Stream = CP_Stream;
     Stream->Config = Config;
-    Stream->Hostname = ParallelDupHostname(Params);
+    Stream->Hostname = HybridDupHostname(Params);
     Stream->NumSubDPs = (size_t)Config->NumSubDPs;
     Stream->SubDPs = calloc(Stream->NumSubDPs, sizeof(*Stream->SubDPs));
 
     int NumAvailable = 0;
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         SubDP->Interface = Config->SubDPs[i].Interface;
         SubDP->Name = Config->SubDPs[i].Name;
         SubDP->Scope = Config->SubDPs[i].Scope;
@@ -843,24 +848,24 @@ static DP_WS_Stream ParallelInitWriter(CP_Services Svcs, void *CP_Stream, struct
     if (NumAvailable == 0)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                      "Parallel DataPlane: none of the configured sub-dataplanes initialized "
+                      "Hybrid DataPlane: none of the configured sub-dataplanes initialized "
                       "successfully on the writer side.\n");
         free(Stream->SubDPs);
         free(Stream->Hostname);
-        ParallelConfigDestroy(Config);
+        HybridConfigDestroy(Config);
         free(Stream);
         return NULL;
     }
     return Stream;
 }
 
-static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
-                                                 int ReaderCohortSize, CP_PeerCohort PeerCohort,
-                                                 void **ProvidedReaderInfo,
-                                                 void **WriterContactInfoPtr)
+static DP_WSR_Stream HybridInitWriterPerReader(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
+                                               int ReaderCohortSize, CP_PeerCohort PeerCohort,
+                                               void **ProvidedReaderInfo,
+                                               void **WriterContactInfoPtr)
 {
-    Parallel_WS_Stream Stream = (Parallel_WS_Stream)WS_Stream_v;
-    Parallel_WSR_Stream WSR = calloc(1, sizeof(*WSR));
+    Hybrid_WS_Stream Stream = (Hybrid_WS_Stream)WS_Stream_v;
+    Hybrid_WSR_Stream WSR = calloc(1, sizeof(*WSR));
     WSR->WS_Stream = Stream;
     WSR->NumSubDPs = Stream->NumSubDPs;
     WSR->SubWSR = calloc(Stream->NumSubDPs, sizeof(*WSR->SubWSR));
@@ -870,7 +875,7 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
 
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (!SubDP->Ready || !SubDP->WS_Stream || !SubDP->Interface->initWriterPerReader)
         {
             continue;
@@ -879,9 +884,9 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
         int AllAvailable = 1;
         for (int j = 0; j < ReaderCohortSize; j++)
         {
-            ParallelContactInfo ReaderContact = (ParallelContactInfo)ProvidedReaderInfo[j];
-            int Slot = ReaderContact ? ParallelFindSlot(ReaderContact->SubInfo,
-                                                        ReaderContact->NumSubDPs, SubDP->Name)
+            HybridContactInfo ReaderContact = (HybridContactInfo)ProvidedReaderInfo[j];
+            int Slot = ReaderContact ? HybridFindSlot(ReaderContact->SubInfo,
+                                                      ReaderContact->NumSubDPs, SubDP->Name)
                                      : -1;
             if (Slot < 0 || !ReaderContact->SubInfo[Slot].Available)
             {
@@ -898,11 +903,11 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
         int DecodeOk = 1;
         for (int j = 0; j < ReaderCohortSize; j++)
         {
-            ParallelContactInfo ReaderContact = (ParallelContactInfo)ProvidedReaderInfo[j];
+            HybridContactInfo ReaderContact = (HybridContactInfo)ProvidedReaderInfo[j];
             int Slot =
-                ParallelFindSlot(ReaderContact->SubInfo, ReaderContact->NumSubDPs, SubDP->Name);
+                HybridFindSlot(ReaderContact->SubInfo, ReaderContact->NumSubDPs, SubDP->Name);
             ReaderInfo[j] =
-                ParallelDecodeSubInfoReal(Stream->Config->FFS, &ReaderContact->SubInfo[Slot]);
+                HybridDecodeSubInfoReal(Stream->Config->FFS, &ReaderContact->SubInfo[Slot]);
             if (ReaderContact->SubInfo[Slot].Length > 0 && !ReaderInfo[j])
             {
                 DecodeOk = 0;
@@ -936,9 +941,9 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
         }
     }
 
-    ParallelContactInfo Contact =
-        ParallelMakeContact(Stream->Config, Stream->Config->WriterContactFormats, ContactInfo,
-                            Available, Stream->Hostname);
+    HybridContactInfo Contact =
+        HybridMakeContact(Stream->Config, Stream->Config->WriterContactFormats, ContactInfo,
+                          Available, Stream->Hostname);
     free(ContactInfo);
     free(Available);
 
@@ -947,11 +952,11 @@ static DP_WSR_Stream ParallelInitWriterPerReader(CP_Services Svcs, DP_WS_Stream 
     return WSR;
 }
 
-static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v,
-                                              int WriterCohortSize, CP_PeerCohort PeerCohort,
-                                              void **ProvidedWriterInfo)
+static void HybridProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v,
+                                            int WriterCohortSize, CP_PeerCohort PeerCohort,
+                                            void **ProvidedWriterInfo)
 {
-    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
+    Hybrid_RS_Stream Stream = (Hybrid_RS_Stream)RS_Stream_v;
     if (Stream->WriterHostnames)
     {
         for (int i = 0; i < Stream->WriterCohortSize; i++)
@@ -964,7 +969,7 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
     Stream->WriterHostnames = calloc(WriterCohortSize, sizeof(*Stream->WriterHostnames));
     for (int j = 0; j < WriterCohortSize; j++)
     {
-        ParallelContactInfo WriterContact = (ParallelContactInfo)ProvidedWriterInfo[j];
+        HybridContactInfo WriterContact = (HybridContactInfo)ProvidedWriterInfo[j];
         if (WriterContact && WriterContact->Hostname)
         {
             Stream->WriterHostnames[j] = strdup(WriterContact->Hostname);
@@ -973,7 +978,7 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
 
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         SubDP->Ready = 0;
         if (!SubDP->RS_Stream || !SubDP->Interface->provideWriterDataToReader)
         {
@@ -983,9 +988,9 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
         int AllAvailable = 1;
         for (int j = 0; j < WriterCohortSize; j++)
         {
-            ParallelContactInfo WriterContact = (ParallelContactInfo)ProvidedWriterInfo[j];
-            int Slot = WriterContact ? ParallelFindSlot(WriterContact->SubInfo,
-                                                        WriterContact->NumSubDPs, SubDP->Name)
+            HybridContactInfo WriterContact = (HybridContactInfo)ProvidedWriterInfo[j];
+            int Slot = WriterContact ? HybridFindSlot(WriterContact->SubInfo,
+                                                      WriterContact->NumSubDPs, SubDP->Name)
                                      : -1;
             if (Slot < 0 || !WriterContact->SubInfo[Slot].Available)
             {
@@ -1002,11 +1007,11 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
         int DecodeOk = 1;
         for (int j = 0; j < WriterCohortSize; j++)
         {
-            ParallelContactInfo WriterContact = (ParallelContactInfo)ProvidedWriterInfo[j];
+            HybridContactInfo WriterContact = (HybridContactInfo)ProvidedWriterInfo[j];
             int Slot =
-                ParallelFindSlot(WriterContact->SubInfo, WriterContact->NumSubDPs, SubDP->Name);
+                HybridFindSlot(WriterContact->SubInfo, WriterContact->NumSubDPs, SubDP->Name);
             WriterInfo[j] =
-                ParallelDecodeSubInfoReal(Stream->Config->FFS, &WriterContact->SubInfo[Slot]);
+                HybridDecodeSubInfoReal(Stream->Config->FFS, &WriterContact->SubInfo[Slot]);
             if (WriterContact->SubInfo[Slot].Length > 0 && !WriterInfo[j])
             {
                 DecodeOk = 0;
@@ -1035,22 +1040,22 @@ static void ParallelProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_
     }
 }
 
-static void *ParallelReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v, int Rank,
-                                      size_t Timestep, size_t Offset, size_t Length, void *Buffer,
-                                      void *DP_TimestepInfo)
+static void *HybridReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v, int Rank,
+                                    size_t Timestep, size_t Offset, size_t Length, void *Buffer,
+                                    void *DP_TimestepInfo)
 {
-    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
-    ParallelTimestepInfo TimestepInfo = (ParallelTimestepInfo)DP_TimestepInfo;
-    int SameHost = ParallelSameHost(Stream, Rank);
+    Hybrid_RS_Stream Stream = (Hybrid_RS_Stream)RS_Stream_v;
+    HybridTimestepInfo TimestepInfo = (HybridTimestepInfo)DP_TimestepInfo;
+    int SameHost = HybridSameHost(Stream, Rank);
 
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        if (!ParallelSubDPIsCandidate(Stream, i, SameHost))
+        if (!HybridSubDPIsCandidate(Stream, i, SameHost))
         {
             continue;
         }
 
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (SubDP->Interface->getPeerRouteStatus &&
             SubDP->Interface->getPeerRouteStatus(Svcs, SubDP->RS_Stream, Rank) ==
                 DPPeerRouteNoRoute)
@@ -1060,15 +1065,15 @@ static void *ParallelReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v
         void *SubTimestepInfo = NULL;
         if (SubDP->Interface->TimestepInfoFormats)
         {
-            int Slot = TimestepInfo ? ParallelFindSlot(TimestepInfo->SubInfo,
-                                                       TimestepInfo->NumSubInfos, SubDP->Name)
+            int Slot = TimestepInfo ? HybridFindSlot(TimestepInfo->SubInfo,
+                                                     TimestepInfo->NumSubInfos, SubDP->Name)
                                     : -1;
             if (Slot < 0 || !TimestepInfo->SubInfo[Slot].Available)
             {
                 continue;
             }
             SubTimestepInfo =
-                ParallelDecodeSubInfoReal(Stream->Config->FFS, &TimestepInfo->SubInfo[Slot]);
+                HybridDecodeSubInfoReal(Stream->Config->FFS, &TimestepInfo->SubInfo[Slot]);
             if (!SubTimestepInfo)
             {
                 continue;
@@ -1080,7 +1085,7 @@ static void *ParallelReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v
         free(SubTimestepInfo);
         if (Handle)
         {
-            ParallelCompletionHandle Completion = malloc(sizeof(*Completion));
+            HybridCompletionHandle Completion = malloc(sizeof(*Completion));
             Completion->Interface = SubDP->Interface;
             Completion->Handle = Handle;
             return Completion;
@@ -1089,9 +1094,9 @@ static void *ParallelReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v
     return NULL;
 }
 
-static int ParallelWaitForCompletion(CP_Services Svcs, void *Handle_v)
+static int HybridWaitForCompletion(CP_Services Svcs, void *Handle_v)
 {
-    ParallelCompletionHandle Completion = (ParallelCompletionHandle)Handle_v;
+    HybridCompletionHandle Completion = (HybridCompletionHandle)Handle_v;
     if (!Completion)
     {
         return 0;
@@ -1105,13 +1110,12 @@ static int ParallelWaitForCompletion(CP_Services Svcs, void *Handle_v)
     return Ret;
 }
 
-static void ParallelNotifyConnFailure(CP_Services Svcs, DP_RS_Stream RS_Stream_v,
-                                      int FailedPeerRank)
+static void HybridNotifyConnFailure(CP_Services Svcs, DP_RS_Stream RS_Stream_v, int FailedPeerRank)
 {
-    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
+    Hybrid_RS_Stream Stream = (Hybrid_RS_Stream)RS_Stream_v;
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (SubDP->RS_Stream && SubDP->Interface->notifyConnFailure)
         {
             SubDP->Interface->notifyConnFailure(Svcs, SubDP->RS_Stream, FailedPeerRank);
@@ -1119,13 +1123,13 @@ static void ParallelNotifyConnFailure(CP_Services Svcs, DP_RS_Stream RS_Stream_v
     }
 }
 
-static void ParallelTimestepArrived(CP_Services Svcs, DP_RS_Stream RS_Stream_v, size_t Timestep,
-                                    SstPreloadModeType PreloadMode)
+static void HybridTimestepArrived(CP_Services Svcs, DP_RS_Stream RS_Stream_v, size_t Timestep,
+                                  SstPreloadModeType PreloadMode)
 {
-    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
+    Hybrid_RS_Stream Stream = (Hybrid_RS_Stream)RS_Stream_v;
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (SubDP->RS_Stream && SubDP->Interface->timestepArrived)
         {
             SubDP->Interface->timestepArrived(Svcs, SubDP->RS_Stream, Timestep, PreloadMode);
@@ -1133,10 +1137,10 @@ static void ParallelTimestepArrived(CP_Services Svcs, DP_RS_Stream RS_Stream_v, 
     }
 }
 
-static void ParallelReaderRegisterTimestep(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v,
-                                           size_t Timestep, SstPreloadModeType PreloadMode)
+static void HybridReaderRegisterTimestep(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v,
+                                         size_t Timestep, SstPreloadModeType PreloadMode)
 {
-    Parallel_WSR_Stream WSR = (Parallel_WSR_Stream)WSR_Stream_v;
+    Hybrid_WSR_Stream WSR = (Hybrid_WSR_Stream)WSR_Stream_v;
     for (size_t i = 0; i < WSR->NumSubDPs; i++)
     {
         if (WSR->SubWSR[i] && WSR->WS_Stream->SubDPs[i].Interface->readerRegisterTimestep)
@@ -1147,10 +1151,10 @@ static void ParallelReaderRegisterTimestep(CP_Services Svcs, DP_WSR_Stream WSR_S
     }
 }
 
-static void ParallelReaderReleaseTimestep(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v,
-                                          size_t Timestep)
+static void HybridReaderReleaseTimestep(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v,
+                                        size_t Timestep)
 {
-    Parallel_WSR_Stream WSR = (Parallel_WSR_Stream)WSR_Stream_v;
+    Hybrid_WSR_Stream WSR = (Hybrid_WSR_Stream)WSR_Stream_v;
     for (size_t i = 0; i < WSR->NumSubDPs; i++)
     {
         if (WSR->SubWSR[i] && WSR->WS_Stream->SubDPs[i].Interface->readerReleaseTimestep)
@@ -1161,10 +1165,10 @@ static void ParallelReaderReleaseTimestep(CP_Services Svcs, DP_WSR_Stream WSR_St
     }
 }
 
-static void ParallelWSRReadPatternLocked(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v,
-                                         size_t EffectiveTimestep)
+static void HybridWSRReadPatternLocked(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v,
+                                       size_t EffectiveTimestep)
 {
-    Parallel_WSR_Stream WSR = (Parallel_WSR_Stream)WSR_Stream_v;
+    Hybrid_WSR_Stream WSR = (Hybrid_WSR_Stream)WSR_Stream_v;
     for (size_t i = 0; i < WSR->NumSubDPs; i++)
     {
         if (WSR->SubWSR[i] && WSR->WS_Stream->SubDPs[i].Interface->WSRreadPatternLocked)
@@ -1175,13 +1179,13 @@ static void ParallelWSRReadPatternLocked(CP_Services Svcs, DP_WSR_Stream WSR_Str
     }
 }
 
-static void ParallelRSReadPatternLocked(CP_Services Svcs, DP_RS_Stream RS_Stream_v,
-                                        size_t EffectiveTimestep)
+static void HybridRSReadPatternLocked(CP_Services Svcs, DP_RS_Stream RS_Stream_v,
+                                      size_t EffectiveTimestep)
 {
-    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
+    Hybrid_RS_Stream Stream = (Hybrid_RS_Stream)RS_Stream_v;
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (SubDP->RS_Stream && SubDP->Interface->RSreadPatternLocked)
         {
             SubDP->Interface->RSreadPatternLocked(Svcs, SubDP->RS_Stream, EffectiveTimestep);
@@ -1189,12 +1193,12 @@ static void ParallelRSReadPatternLocked(CP_Services Svcs, DP_RS_Stream RS_Stream
     }
 }
 
-static void ParallelRSReleaseTimestep(CP_Services Svcs, DP_RS_Stream RS_Stream_v, size_t Timestep)
+static void HybridRSReleaseTimestep(CP_Services Svcs, DP_RS_Stream RS_Stream_v, size_t Timestep)
 {
-    Parallel_RS_Stream Stream = (Parallel_RS_Stream)RS_Stream_v;
+    Hybrid_RS_Stream Stream = (Hybrid_RS_Stream)RS_Stream_v;
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (SubDP->RS_Stream && SubDP->Interface->RSReleaseTimestep)
         {
             SubDP->Interface->RSReleaseTimestep(Svcs, SubDP->RS_Stream, Timestep);
@@ -1202,22 +1206,22 @@ static void ParallelRSReleaseTimestep(CP_Services Svcs, DP_RS_Stream RS_Stream_v
     }
 }
 
-static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
-                                    struct _SstData *Data, struct _SstData *LocalMetadata,
-                                    size_t Timestep, void **TimestepInfoPtr)
+static void HybridProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v, struct _SstData *Data,
+                                  struct _SstData *LocalMetadata, size_t Timestep,
+                                  void **TimestepInfoPtr)
 {
-    Parallel_WS_Stream Stream = (Parallel_WS_Stream)WS_Stream_v;
-    ParallelTimestepInfo Info = NULL;
+    Hybrid_WS_Stream Stream = (Hybrid_WS_Stream)WS_Stream_v;
+    HybridTimestepInfo Info = NULL;
     if (Stream->HasTimestepInfo)
     {
         Info = calloc(1, sizeof(*Info));
         Info->NumSubInfos = (int)Stream->NumSubDPs;
-        Info->SubInfo = calloc(Stream->NumSubDPs, sizeof(struct _ParallelSubDPInfo));
+        Info->SubInfo = calloc(Stream->NumSubDPs, sizeof(struct _HybridSubDPInfo));
     }
 
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (Info)
         {
             Info->SubInfo[i].Name = strdup(Stream->Config->SubDPs[i].Name);
@@ -1231,8 +1235,7 @@ static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
                                           &SubInfo);
         if (Info)
         {
-            ParallelEncodeSubInfo(Stream->Config->TimestepInfoFormats[i], SubInfo,
-                                  &Info->SubInfo[i]);
+            HybridEncodeSubInfo(Stream->Config->TimestepInfoFormats[i], SubInfo, &Info->SubInfo[i]);
             if (SubDP->Interface->TimestepInfoFormats && Info->SubInfo[i].Length > 0)
             {
                 Info->SubInfo[i].Available = 1;
@@ -1246,7 +1249,7 @@ static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
 
     if (Info)
     {
-        ParallelTimestepEntry Entry = calloc(1, sizeof(*Entry));
+        HybridTimestepEntry Entry = calloc(1, sizeof(*Entry));
         Entry->Timestep = Timestep;
         Entry->Info = Info;
         Entry->Next = Stream->Timesteps;
@@ -1256,26 +1259,26 @@ static void ParallelProvideTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v,
     *TimestepInfoPtr = Info;
 }
 
-static void ParallelReleaseTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v, size_t Timestep)
+static void HybridReleaseTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v, size_t Timestep)
 {
-    Parallel_WS_Stream Stream = (Parallel_WS_Stream)WS_Stream_v;
+    Hybrid_WS_Stream Stream = (Hybrid_WS_Stream)WS_Stream_v;
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (SubDP->Ready && SubDP->WS_Stream && SubDP->Interface->releaseTimestep)
         {
             SubDP->Interface->releaseTimestep(Svcs, SubDP->WS_Stream, Timestep);
         }
     }
 
-    ParallelTimestepEntry *Link = &Stream->Timesteps;
+    HybridTimestepEntry *Link = &Stream->Timesteps;
     while (*Link)
     {
         if ((*Link)->Timestep == Timestep)
         {
-            ParallelTimestepEntry Entry = *Link;
+            HybridTimestepEntry Entry = *Link;
             *Link = Entry->Next;
-            ParallelFreeTimestepInfo(Entry->Info);
+            HybridFreeTimestepInfo(Entry->Info);
             free(Entry);
             break;
         }
@@ -1283,58 +1286,58 @@ static void ParallelReleaseTimestep(CP_Services Svcs, DP_WS_Stream WS_Stream_v, 
     }
 }
 
-static void ParallelDestroyWriterPerReader(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v)
+static void HybridDestroyWriterPerReader(CP_Services Svcs, DP_WSR_Stream WSR_Stream_v)
 {
-    Parallel_WSR_Stream WSR = (Parallel_WSR_Stream)WSR_Stream_v;
+    Hybrid_WSR_Stream WSR = (Hybrid_WSR_Stream)WSR_Stream_v;
     if (!WSR)
     {
         return;
     }
     for (size_t i = 0; i < WSR->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &WSR->WS_Stream->SubDPs[i];
+        HybridSubDPState SubDP = &WSR->WS_Stream->SubDPs[i];
         if (WSR->SubWSR[i] && SubDP->Interface->destroyWriterPerReader)
         {
             SubDP->Interface->destroyWriterPerReader(Svcs, WSR->SubWSR[i]);
         }
     }
     free(WSR->SubWSR);
-    ParallelFreeContact(WSR->MyContact);
+    HybridFreeContact(WSR->MyContact);
     free(WSR);
 }
 
-static void ParallelDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
+static void HybridDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
 {
-    Parallel_WS_Stream Stream = (Parallel_WS_Stream)WS_Stream_v;
+    Hybrid_WS_Stream Stream = (Hybrid_WS_Stream)WS_Stream_v;
     if (!Stream)
     {
         return;
     }
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
-        ParallelSubDPState SubDP = &Stream->SubDPs[i];
+        HybridSubDPState SubDP = &Stream->SubDPs[i];
         if (SubDP->WS_Stream && SubDP->Interface->destroyWriter)
         {
             SubDP->Interface->destroyWriter(Svcs, SubDP->WS_Stream);
         }
     }
-    ParallelTimestepEntry Entry = Stream->Timesteps;
+    HybridTimestepEntry Entry = Stream->Timesteps;
     while (Entry)
     {
-        ParallelTimestepEntry Next = Entry->Next;
-        ParallelFreeTimestepInfo(Entry->Info);
+        HybridTimestepEntry Next = Entry->Next;
+        HybridFreeTimestepInfo(Entry->Info);
         free(Entry);
         Entry = Next;
     }
-    ParallelConfigDestroy(Stream->Config);
+    HybridConfigDestroy(Stream->Config);
     free(Stream->SubDPs);
     free(Stream->Hostname);
     free(Stream);
 }
 
-static int ParallelGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params)
+static int HybridGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params)
 {
-    ParallelConfig Config = ParallelConfigCreate(Svcs, CP_Stream, Params, 0);
+    HybridConfig Config = HybridConfigCreate(Svcs, CP_Stream, Params, 0);
     if (!Config)
     {
         return -1;
@@ -1350,49 +1353,49 @@ static int ParallelGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstPar
             NumUsable++;
         }
     }
-    ParallelConfigDestroy(Config);
+    HybridConfigDestroy(Config);
 
     if (NumUsable == 0)
     {
         Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                      "Parallel DataPlane: none of the configured sub-dataplanes is usable.\n");
+                      "Hybrid DataPlane: none of the configured sub-dataplanes is usable.\n");
         return -1;
     }
     return 1000;
 }
 
-static void ParallelUnGetPriority(CP_Services Svcs, void *CP_Stream)
+static void HybridUnGetPriority(CP_Services Svcs, void *CP_Stream)
 {
-    Svcs->verbose(CP_Stream, DPPerStepVerbose, "Parallel Dataplane unloading\n");
+    Svcs->verbose(CP_Stream, DPPerStepVerbose, "Hybrid Dataplane unloading\n");
 }
 
-static struct _CP_DP_Interface ParallelDPInterface = {0};
+static struct _CP_DP_Interface HybridDPInterface = {0};
 
-extern CP_DP_Interface LoadParallelDP()
+extern CP_DP_Interface LoadHybridDP()
 {
-    ParallelDPInterface.DPName = "parallel";
-    ParallelDPInterface.ReaderContactFormats = ParallelReaderContactStructs;
-    ParallelDPInterface.WriterContactFormats = ParallelWriterContactStructs;
-    ParallelDPInterface.TimestepInfoFormats = ParallelTimestepInfoStructs;
-    ParallelDPInterface.initReader = ParallelInitReader;
-    ParallelDPInterface.initWriter = ParallelInitWriter;
-    ParallelDPInterface.initWriterPerReader = ParallelInitWriterPerReader;
-    ParallelDPInterface.provideWriterDataToReader = ParallelProvideWriterDataToReader;
-    ParallelDPInterface.readRemoteMemory = (CP_DP_ReadRemoteMemoryFunc)ParallelReadRemoteMemory;
-    ParallelDPInterface.waitForCompletion = ParallelWaitForCompletion;
-    ParallelDPInterface.notifyConnFailure = ParallelNotifyConnFailure;
-    ParallelDPInterface.provideTimestep = (CP_DP_ProvideTimestepFunc)ParallelProvideTimestep;
-    ParallelDPInterface.readerRegisterTimestep = ParallelReaderRegisterTimestep;
-    ParallelDPInterface.releaseTimestep = (CP_DP_ReleaseTimestepFunc)ParallelReleaseTimestep;
-    ParallelDPInterface.readerReleaseTimestep = ParallelReaderReleaseTimestep;
-    ParallelDPInterface.WSRreadPatternLocked = ParallelWSRReadPatternLocked;
-    ParallelDPInterface.RSreadPatternLocked = ParallelRSReadPatternLocked;
-    ParallelDPInterface.RSReleaseTimestep = ParallelRSReleaseTimestep;
-    ParallelDPInterface.timestepArrived = (CP_DP_ReaderTimestepArrivalFunc)ParallelTimestepArrived;
-    ParallelDPInterface.destroyReader = ParallelDestroyReader;
-    ParallelDPInterface.destroyWriter = ParallelDestroyWriter;
-    ParallelDPInterface.destroyWriterPerReader = ParallelDestroyWriterPerReader;
-    ParallelDPInterface.getPriority = ParallelGetPriority;
-    ParallelDPInterface.unGetPriority = ParallelUnGetPriority;
-    return &ParallelDPInterface;
+    HybridDPInterface.DPName = "hybrid";
+    HybridDPInterface.ReaderContactFormats = HybridReaderContactStructs;
+    HybridDPInterface.WriterContactFormats = HybridWriterContactStructs;
+    HybridDPInterface.TimestepInfoFormats = HybridTimestepInfoStructs;
+    HybridDPInterface.initReader = HybridInitReader;
+    HybridDPInterface.initWriter = HybridInitWriter;
+    HybridDPInterface.initWriterPerReader = HybridInitWriterPerReader;
+    HybridDPInterface.provideWriterDataToReader = HybridProvideWriterDataToReader;
+    HybridDPInterface.readRemoteMemory = (CP_DP_ReadRemoteMemoryFunc)HybridReadRemoteMemory;
+    HybridDPInterface.waitForCompletion = HybridWaitForCompletion;
+    HybridDPInterface.notifyConnFailure = HybridNotifyConnFailure;
+    HybridDPInterface.provideTimestep = (CP_DP_ProvideTimestepFunc)HybridProvideTimestep;
+    HybridDPInterface.readerRegisterTimestep = HybridReaderRegisterTimestep;
+    HybridDPInterface.releaseTimestep = (CP_DP_ReleaseTimestepFunc)HybridReleaseTimestep;
+    HybridDPInterface.readerReleaseTimestep = HybridReaderReleaseTimestep;
+    HybridDPInterface.WSRreadPatternLocked = HybridWSRReadPatternLocked;
+    HybridDPInterface.RSreadPatternLocked = HybridRSReadPatternLocked;
+    HybridDPInterface.RSReleaseTimestep = HybridRSReleaseTimestep;
+    HybridDPInterface.timestepArrived = (CP_DP_ReaderTimestepArrivalFunc)HybridTimestepArrived;
+    HybridDPInterface.destroyReader = HybridDestroyReader;
+    HybridDPInterface.destroyWriter = HybridDestroyWriter;
+    HybridDPInterface.destroyWriterPerReader = HybridDestroyWriterPerReader;
+    HybridDPInterface.getPriority = HybridGetPriority;
+    HybridDPInterface.unGetPriority = HybridUnGetPriority;
+    return &HybridDPInterface;
 }

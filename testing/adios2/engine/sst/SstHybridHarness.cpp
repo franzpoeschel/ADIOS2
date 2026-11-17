@@ -24,9 +24,9 @@ namespace
 struct Options
 {
     std::string Mode = "split";
-    std::string Filename = "sst_parallel_harness";
+    std::string Filename = "sst_hybrid_harness";
     std::string Config;
-    std::string DataPlane = "parallel";
+    std::string DataPlane = "hybrid";
     size_t Steps = 5;
     size_t Elements = 1024;
     int WriterRanks = -1;
@@ -36,9 +36,9 @@ void Usage(const char *Program)
 {
     std::cerr << "Usage: " << Program << " [options]\n"
               << "  --mode split|writer|reader   default: split\n"
-              << "  --filename NAME              default: sst_parallel_harness\n"
-              << "  --config STRING              set SST_PARALLEL_DP via IO.SetParameter\n"
-              << "  --dataplane NAME             default: parallel\n"
+              << "  --filename NAME              default: sst_hybrid_harness\n"
+              << "  --config STRING              set SST_HYBRID_DP via IO.SetParameter\n"
+              << "  --dataplane NAME             default: hybrid\n"
               << "  --steps N                    default: 5\n"
               << "  --elements N                 default: 1024\n"
               << "  --writers N                  required for reader mode\n";
@@ -93,7 +93,7 @@ void ConfigureIO(adios2::IO &IO, const Options &Options)
     IO.SetParameter("SST_REQUIRE_DATAPLANE", Options.DataPlane);
     if (!Options.Config.empty())
     {
-        IO.SetParameter("SST_PARALLEL_DP", Options.Config);
+        IO.SetParameter("SST_HYBRID_DP", Options.Config);
     }
 }
 
@@ -111,7 +111,7 @@ int RunWriter(MPI_Comm Comm, const Options &Options)
     MPI_Comm_size(Comm, &Size);
 
     adios2::ADIOS Adios(Comm);
-    adios2::IO IO = Adios.DeclareIO("SSTParallelHarnessWriter");
+    adios2::IO IO = Adios.DeclareIO("SSTHybridHarnessWriter");
     ConfigureIO(IO, Options);
     adios2::Variable<double> Variable = IO.DefineVariable<double>(
         "data", {static_cast<size_t>(Size) * Options.Elements},
@@ -139,7 +139,7 @@ int RunReader(MPI_Comm Comm, const Options &Options, int WriterRanks)
     MPI_Comm_rank(Comm, &Rank);
 
     adios2::ADIOS Adios(Comm);
-    adios2::IO IO = Adios.DeclareIO("SSTParallelHarnessReader");
+    adios2::IO IO = Adios.DeclareIO("SSTHybridHarnessReader");
     ConfigureIO(IO, Options);
     adios2::Engine Engine = IO.Open(Options.Filename, adios2::Mode::Read);
 

@@ -3,17 +3,17 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-#SBATCH --job-name=sst-parallel
+#SBATCH --job-name=sst-hybrid
 #SBATCH --nodes=2
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=2
 #SBATCH --time=00:10:00
-#SBATCH --output=sst-parallel-%j.out
-#SBATCH --error=sst-parallel-%j.err
+#SBATCH --output=sst-hybrid-%j.out
+#SBATCH --error=sst-hybrid-%j.err
 
 set -euo pipefail
 
-BIN=${BIN:-./Test.SST.ParallelHarness}
+BIN=${BIN:-./Test.SST.HybridHarness}
 STEPS=${STEPS:-5}
 ELEMENTS=${ELEMENTS:-1024}
 LOCAL_PROVIDER=${LOCAL_PROVIDER:-shm}
@@ -26,11 +26,11 @@ CONFIG="libfabric?id=shm&FABRIC_PROVIDER=${LOCAL_PROVIDER}&FABRIC_IFACE=${LOCAL_
 
 if [[ ! -x "${BIN}" ]]; then
     echo "Executable not found: ${BIN}" >&2
-    echo "Set BIN=... when submitting, or build Test.SST.ParallelHarness first." >&2
+    echo "Set BIN=... when submitting, or build Test.SST.HybridHarness first." >&2
     exit 1
 fi
 
-echo "SST parallel harness configuration:"
+echo "SST hybrid harness configuration:"
 echo "  config: ${CONFIG}"
 echo "  steps: ${STEPS}, elements: ${ELEMENTS}"
 echo "  nodes: ${SLURM_NNODES:-2}, tasks: ${SLURM_NTASKS:-4}"

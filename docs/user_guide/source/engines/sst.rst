@@ -157,8 +157,9 @@ the underlying network communication mechanism to use for exchanging
 data in SST.  Generally this is chosen by SST based upon what is
 available on the current platform.  However, specifying this engine
 parameter allows overriding SST's choice.  Current allowed values are
-**"UCX"**, **"MPI"**, **"RDMA"**, **"Mercury"**, **"parallel"**, and **"WAN"**.  (**ib**, **fabric**,
-and **libfabric** are accepted as equivalent to **RDMA**, and **evpath** is equivalent to **WAN**.)
+**"UCX"**, **"MPI"**, **"RDMA"**, **"Mercury"**, **"hybrid"**, and **"WAN"**.  (**ib**, **fabric**,
+and **libfabric** are accepted as equivalent to **RDMA**, **parallel** and **virtual** are
+equivalent to **hybrid**, and **evpath** is equivalent to **WAN**.)
 Generally both the reader and writer should be using the same network
 transport, and the network transport chosen may be dictated by the
 situation.  For example, the RDMA transport generally operates only
@@ -334,17 +335,17 @@ The following environment variables are read and interpreted by the data planes:
 
     * Tip: For restricting UCX to communication with shared memory only, set ``UCX_TLS=shm``. Progress threads must be used on the writer and reader side. It might be necessary to additionally set ``UCX_POSIX_USE_PROC_LINK=n`` on some systems.
 
-* By the **parallel data plane**:
+* By the **hybrid data plane**:
 
-    * ``SST_PARALLEL_DP`` (alias ``SST_VIRTUAL_DP``) configures an ordered list of sub-dataplanes. Instances are separated by ``;``, the optional parameter list is introduced by ``?``, and parameters are separated by ``&``. An instance has the form ``type?option&option...``. The optional ``id=`` names the instance and the optional ``scope=local|remote|any`` filters it by host locality. Other options are dataplane parameters. For example:
+    * ``SST_HYBRID_DP`` (aliases ``SST_PARALLEL_DP`` and ``SST_VIRTUAL_DP``) configures an ordered list of sub-dataplanes. Instances are separated by ``;``, the optional parameter list is introduced by ``?``, and parameters are separated by ``&``. An instance has the form ``type?option&option...``. The optional ``id=`` names the instance and the optional ``scope=local|remote|any`` filters it by host locality. Other options are dataplane parameters. For example:
 
       .. code-block:: sh
 
-         SST_PARALLEL_DP='libfabric?id=shm&FABRIC_PROVIDER=shm&FABRIC_IFACE=shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
+         SST_HYBRID_DP='libfabric?id=shm&FABRIC_PROVIDER=shm&FABRIC_IFACE=shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
 
       The dataplanes are tried in order. A sub-dataplane that cannot reach a peer is skipped and the next one is used. If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``.
 
-    * ``SST_PARALLEL_NODE_ID`` overrides the hostname used by explicit ``scope=`` settings. Implicit routing does not use hostnames.
+    * ``SST_HYBRID_NODE_ID`` (alias ``SST_PARALLEL_NODE_ID``) overrides the hostname used by explicit ``scope=`` settings. Implicit routing does not use hostnames.
 
     The same settings must be configured on the writer and reader; they may be supplied through environment variables or ``IO.SetParameter``. Explicit parameters take precedence over environment variables.
 
