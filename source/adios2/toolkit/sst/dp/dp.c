@@ -89,7 +89,6 @@ CP_DP_Interface SelectDP(CP_Services Svcs, void *CP_Stream, struct _SstParams *P
     }
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadEVpathDP(), "evpath", Params);
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadHybridDP(), "hybrid", Params);
-    List = AddDPPossibility(Svcs, CP_Stream, List, LoadHybridDP(), "parallel", Params);
 #ifdef SST_HAVE_LIBFABRIC
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadRdmaDP(), "rdma", Params);
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadRdmaDP(), "libfabric", Params);

@@ -182,10 +182,6 @@ static char *HybridDupHostname(struct _SstParams *Params)
 {
     char Buffer[256] = {0};
     const char *Override = get_dataplane_config(Params, "SST_HYBRID_NODE_ID");
-    if (!Override || !Override[0])
-    {
-        Override = get_dataplane_config(Params, "SST_PARALLEL_NODE_ID");
-    }
     if (Override && Override[0])
     {
         return strdup(Override);
@@ -387,14 +383,6 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                                        int RegisterFormats)
 {
     const char *ConfigString = get_dataplane_config(Params, "SST_HYBRID_DP");
-    if (!ConfigString || !ConfigString[0])
-    {
-        ConfigString = get_dataplane_config(Params, "SST_PARALLEL_DP");
-    }
-    if (!ConfigString || !ConfigString[0])
-    {
-        ConfigString = get_dataplane_config(Params, "SST_VIRTUAL_DP");
-    }
     if (!ConfigString || !ConfigString[0])
     {
         return NULL;

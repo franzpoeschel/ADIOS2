@@ -158,8 +158,8 @@ data in SST.  Generally this is chosen by SST based upon what is
 available on the current platform.  However, specifying this engine
 parameter allows overriding SST's choice.  Current allowed values are
 **"UCX"**, **"MPI"**, **"RDMA"**, **"Mercury"**, **"hybrid"**, and **"WAN"**.  (**ib**, **fabric**,
-and **libfabric** are accepted as equivalent to **RDMA**, **parallel** and **virtual** are
-equivalent to **hybrid**, and **evpath** is equivalent to **WAN**.)
+and **libfabric** are accepted as equivalent to **RDMA**, and **evpath** is equivalent to
+**WAN**.)
 Generally both the reader and writer should be using the same network
 transport, and the network transport chosen may be dictated by the
 situation.  For example, the RDMA transport generally operates only
@@ -337,17 +337,26 @@ The following environment variables are read and interpreted by the data planes:
 
 * By the **hybrid data plane**:
 
-    * ``SST_HYBRID_DP`` (aliases ``SST_PARALLEL_DP`` and ``SST_VIRTUAL_DP``) configures an ordered list of sub-dataplanes. Instances are separated by ``;``, the optional parameter list is introduced by ``?``, and parameters are separated by ``&``. An instance has the form ``type?option&option...``. The optional ``id=`` names the instance and the optional ``scope=local|remote|any`` filters it by host locality. Other options are dataplane parameters. For example:
+    * ``SST_HYBRID_DP`` configures an ordered list of sub-dataplanes. Instances are separated by ``;``, the optional parameter list is introduced by ``?``, and parameters are separated by ``&``. An instance has the form ``type?option&option...``. The optional ``id=`` names the instance and the optional ``scope=local|remote|any`` filters it by host locality. Other options are dataplane parameters. For example:
 
       .. code-block:: sh
 
          SST_HYBRID_DP='libfabric?id=shm&FABRIC_PROVIDER=shm&FABRIC_IFACE=shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
 
-      The dataplanes are tried in order. A sub-dataplane that cannot reach a peer is skipped and the next one is used. If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``.
+      If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``.
 
-    * ``SST_HYBRID_NODE_ID`` (alias ``SST_PARALLEL_NODE_ID``) overrides the hostname used by explicit ``scope=`` settings. Implicit routing does not use hostnames.
+    * ``SST_HYBRID_NODE_ID`` overrides the hostname used by explicit ``scope=`` settings. Implicit routing does not use hostnames.
 
     The same settings must be configured on the writer and reader; they may be supplied through environment variables or ``IO.SetParameter``. Explicit parameters take precedence over environment variables.
+
+    **Sub-dataplane selection for reads.** A read is fulfilled by one sub-dataplane; the hybrid data plane does not split or duplicate a single read across sub-dataplanes. The writer provides each timestep to every initialized sub-dataplane. On the reader, candidates are considered in configuration order and a sub-dataplane is used only if all of the following hold:
+
+    * it initialized successfully and provides ``readRemoteMemory``;
+    * its explicit ``scope``, if any, matches the writer rank's locality (``local`` = same host, ``remote`` = different host, ``any`` = no filter);
+    * its optional peer-route check does not report ``NO_ROUTE``. RDMA derives this from address-vector insertion; UCX and dataplanes without a route check report unknown and are attempted;
+    * its per-timestep information for that writer rank exists and decodes successfully.
+
+    The first candidate that successfully posts the read owns the request and its completion handle is used for the wait. If a candidate fails before posting, the next candidate is tried. Failures after a read has been posted are not retried through another sub-dataplane. There is currently no latency, bandwidth, queue-depth, or round-robin based load balancing.
 
 * By the **Mercury data plane**:
 

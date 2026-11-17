@@ -137,11 +137,6 @@ void CP_validateParams(SstStream Stream, SstParams Params, int Writer)
         {
             Params->DataTransport = strdup("evpath");
         }
-        else if ((strcmp(SelectedTransport, "parallel") == 0) ||
-                 (strcmp(SelectedTransport, "virtual") == 0))
-        {
-            Params->DataTransport = strdup("hybrid");
-        }
         else if ((strcmp(SelectedTransport, "rdma") == 0) ||
                  (strcmp(SelectedTransport, "libfabric") == 0) ||
                  (strcmp(SelectedTransport, "ib") == 0) ||
