@@ -343,7 +343,7 @@ The following environment variables are read and interpreted by the data planes:
 
          SST_HYBRID_DP='libfabric?id=shm&FABRIC_PROVIDER=shm&FABRIC_IFACE=shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
 
-      If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``. An instance whose ``FABRIC_PROVIDER`` or ``FABRIC_IFACE`` is ``shm`` defaults to ``scope=local`` unless a scope is explicitly given, because libfabric's shm provider may accept remote addresses even though it cannot serve them.
+      If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``.
 
     * ``SST_HYBRID_NODE_ID`` overrides the hostname used by explicit ``scope=`` settings. Implicit routing does not use hostnames.
 
