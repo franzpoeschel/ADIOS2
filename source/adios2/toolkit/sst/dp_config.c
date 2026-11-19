@@ -15,6 +15,7 @@
 #endif
 
 #include "dp_config.h"
+#include "sst_data.h"
 
 static char *Uppercase(const char *String)
 {

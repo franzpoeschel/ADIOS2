@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "adios2/toolkit/sst/dp_config.h"
+#include "adios2/toolkit/sst/sst_data.h"
 
 TEST(SstDataplaneConfig, ExplicitParametersBeatEnvironment)
 {
@@ -18,9 +19,9 @@ TEST(SstDataplaneConfig, ExplicitParametersBeatEnvironment)
     ASSERT_STREQ(get_dataplane_config(&Params, "FABRIC_PROVIDER"), "verbs");
 
 #ifndef _WIN32
-    setenv("FABRIC_PROVIDER", "shm", 1);
+    setenv("FABRIC_PROVIDER", "shm", 1); // NOLINT(misc-include-cleaner)
     EXPECT_STREQ(get_dataplane_config(&Params, "FABRIC_PROVIDER"), "verbs");
-    unsetenv("FABRIC_PROVIDER");
+    unsetenv("FABRIC_PROVIDER"); // NOLINT(misc-include-cleaner)
 #endif
 
     SST_FreeDataPlaneParams(&Params);
@@ -30,11 +31,11 @@ TEST(SstDataplaneConfig, EnvironmentFallback)
 {
     struct _SstParams Params = {0};
 #ifndef _WIN32
-    setenv("FABRIC_IFACE", "ib0", 1);
+    setenv("FABRIC_IFACE", "ib0", 1); // NOLINT(misc-include-cleaner)
     EXPECT_STREQ(get_dataplane_config(&Params, "FABRIC_IFACE"), "ib0");
-    setenv("FABRIC_IFACE", "", 1);
+    setenv("FABRIC_IFACE", "", 1); // NOLINT(misc-include-cleaner)
     EXPECT_STREQ(get_dataplane_config(&Params, "fabric_iface"), "");
-    unsetenv("FABRIC_IFACE");
+    unsetenv("FABRIC_IFACE"); // NOLINT(misc-include-cleaner)
 #endif
     SST_FreeDataPlaneParams(&Params);
 }
@@ -57,7 +58,7 @@ TEST(SstDataplaneConfig, InstanceOverridesWinAfterMerge)
     SST_FreeDataPlaneParams(&Base);
 }
 
-int main(int argc, char **argv)
+auto main(int argc, char **argv) -> int
 {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

@@ -280,20 +280,6 @@ static void *make_progress(void *params_)
     return NULL;
 }
 
-/* Shared fi_fabric handle, keyed by provider and fabric name. Multiple
- * dataplane instances may use different providers in one process. */
-struct _GlobalFabricEntry
-{
-    char *ProviderName;
-    char *FabricName;
-    struct fid_fabric *Fabric;
-    int RefCount;
-    struct _GlobalFabricEntry *Next;
-};
-
-/* Protected by fabric_mutex. */
-static struct _GlobalFabricEntry *GlobalFabrics = NULL;
-
 struct fabric_state
 {
     struct fi_context *ctx;
@@ -306,7 +292,6 @@ struct fabric_state
     size_t addr_len;
     size_t msg_prefix_size;
     struct fid_fabric *fabric;
-    struct _GlobalFabricEntry *global_entry;
     struct fid_domain *domain;
     struct fid_ep *signal;
     struct fid_cq *cq_signal;
@@ -670,54 +655,15 @@ static int init_fabric(struct fabric_state *fabric, struct _SstParams *Params, C
                   fi_tostr(fabric->info, FI_TYPE_INFO));
 
     const char *ProviderName = info->fabric_attr->prov_name ? info->fabric_attr->prov_name : "";
-    const char *FabricName = info->fabric_attr->name ? info->fabric_attr->name : "";
-    struct _GlobalFabricEntry *Entry = NULL;
-
-    pthread_mutex_lock(&fabric_mutex);
-    for (Entry = GlobalFabrics; Entry; Entry = Entry->Next)
+    Svcs->verbose(CP_Stream, DPSummaryVerbose, "opening fabric with provider %s\n", ProviderName);
+    result = fi_fabric(info->fabric_attr, &fabric->fabric, fabric->ctx);
+    if (result != FI_SUCCESS)
     {
-        if (strcmp(Entry->ProviderName, ProviderName) == 0 &&
-            strcmp(Entry->FabricName, FabricName) == 0)
-        {
-            break;
-        }
+        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                      "opening fabric access failed with %d (%s). This is fatal.\n", result,
+                      fi_strerror(result));
+        return EXIT_FAILURE;
     }
-    if (Entry)
-    {
-        Svcs->verbose(CP_Stream, DPSummaryVerbose, "Reusing open fabric with provider %s\n",
-                      ProviderName);
-    }
-    else
-    {
-        struct fid_fabric *NewFabric = NULL;
-        Svcs->verbose(CP_Stream, DPSummaryVerbose, "opening fabric with provider %s\n",
-                      ProviderName);
-        result = fi_fabric(info->fabric_attr, &NewFabric, fabric->ctx);
-        if (result != FI_SUCCESS)
-        {
-            pthread_mutex_unlock(&fabric_mutex);
-            Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                          "opening fabric access failed with %d (%s). This is fatal.\n", result,
-                          fi_strerror(result));
-            return EXIT_FAILURE;
-        }
-        Entry = calloc(1, sizeof(*Entry));
-        if (!Entry)
-        {
-            pthread_mutex_unlock(&fabric_mutex);
-            fi_close((struct fid *)NewFabric);
-            return EXIT_FAILURE;
-        }
-        Entry->ProviderName = strdup(ProviderName);
-        Entry->FabricName = strdup(FabricName);
-        Entry->Fabric = NewFabric;
-        Entry->Next = GlobalFabrics;
-        GlobalFabrics = Entry;
-    }
-    Entry->RefCount++;
-    fabric->fabric = Entry->Fabric;
-    fabric->global_entry = Entry;
-    pthread_mutex_unlock(&fabric_mutex);
 
     result = fi_domain(fabric->fabric, info, &fabric->domain, fabric->ctx);
     if (result != FI_SUCCESS)
@@ -884,41 +830,19 @@ static void fini_fabric(struct fabric_state *fabric, CP_Services Svcs, void *CP_
         return;
     }
 
-    pthread_mutex_lock(&fabric_mutex);
-    struct _GlobalFabricEntry *Entry = fabric->global_entry;
-    if (Entry)
+    if (fabric->fabric)
     {
-        Entry->RefCount--;
-        if (Entry->RefCount == 0)
+        Svcs->verbose(CP_Stream, DPSummaryVerbose, "Calling fi_close() on fabric.\n");
+        res = fi_close((struct fid *)fabric->fabric);
+        Svcs->verbose(CP_Stream, DPSummaryVerbose, "Return fi_close() is %d\n", res);
+        fabric->fabric = NULL;
+        if (res != FI_SUCCESS)
         {
-            Svcs->verbose(CP_Stream, DPSummaryVerbose,
-                          "Calling fi_close() on fabric with zero reference count.\n");
-            struct _GlobalFabricEntry **Link = &GlobalFabrics;
-            while (*Link && *Link != Entry)
-            {
-                Link = &(*Link)->Next;
-            }
-            if (*Link == Entry)
-            {
-                *Link = Entry->Next;
-            }
-            res = fi_close((struct fid *)Entry->Fabric);
-            Svcs->verbose(CP_Stream, DPSummaryVerbose, "Return fi_close() is %d\n", res);
-            free(Entry->ProviderName);
-            free(Entry->FabricName);
-            free(Entry);
-            fabric->global_entry = NULL;
-            if (res != FI_SUCCESS)
-            {
-                pthread_mutex_unlock(&fabric_mutex);
-                Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                              "could not close fabric, failed with %d (%s).\n", res,
-                              fi_strerror(res));
-                return;
-            }
+            Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                          "could not close fabric, failed with %d (%s).\n", res, fi_strerror(res));
+            return;
         }
     }
-    pthread_mutex_unlock(&fabric_mutex);
 
     fi_freeinfo(fabric->info);
 

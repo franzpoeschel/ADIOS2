@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef _MSC_VER
+#include <strings.h>
+#endif
+
 #ifndef _WIN32
 #include <unistd.h>
 #else
@@ -16,19 +20,26 @@
 #endif
 
 #include <atl.h>
-#include <evpath.h>
 #include <ffs.h>
+#include <fm.h>
 
 #include "SSTConfig.h"
 #include "dp_config.h"
 #include "dp_interface.h"
+#include "sst_data.h"
 
 #ifdef _MSC_VER
 #define strcasecmp _stricmp
 #define strdup _strdup
 #endif
 
-#define HYBRID_MAX_SUB_DPS 8
+enum
+{
+    HYBRID_MAX_SUB_DPS = 8,
+    HYBRID_HOSTNAME_MAX = 256,
+    HYBRID_HEX_BASE = 10,
+    HYBRID_PRIORITY = 1000
+};
 
 enum HybridSubDPScope
 {
@@ -161,28 +172,28 @@ extern CP_DP_Interface LoadMercuryDP();
 extern CP_DP_Interface LoadMpiDP();
 #endif
 
-static struct _HybridSubDPRegistry HybridRegistry[] = {{"evpath", LoadEVpathDP},
+static const struct _HybridSubDPRegistry HybridRegistry[] = {{"evpath", LoadEVpathDP},
 #ifdef SST_HAVE_LIBFABRIC
-                                                       {"rdma", LoadRdmaDP},
-                                                       {"libfabric", LoadRdmaDP},
+                                                             {"rdma", LoadRdmaDP},
+                                                             {"libfabric", LoadRdmaDP},
 #endif
 #ifdef SST_HAVE_UCX
-                                                       {"ucx", LoadUcxDP},
+                                                             {"ucx", LoadUcxDP},
 #endif
 #ifdef SST_HAVE_DAOS
-                                                       {"daos", LoadDaosDP},
+                                                             {"daos", LoadDaosDP},
 #endif
 #ifdef SST_HAVE_MERCURY
-                                                       {"mercury", LoadMercuryDP},
+                                                             {"mercury", LoadMercuryDP},
 #endif
 #ifdef ADIOS2_HAVE_MPI
-                                                       {"mpi", LoadMpiDP},
+                                                             {"mpi", LoadMpiDP},
 #endif
-                                                       {NULL, NULL}};
+                                                             {NULL, NULL}};
 
 static char *HybridDupHostname(struct _SstParams *Params)
 {
-    char Buffer[256] = {0};
+    char Buffer[HYBRID_HOSTNAME_MAX] = {0};
     const char *Override = get_dataplane_config(Params, "SST_HYBRID_NODE_ID");
     if (Override && Override[0])
     {
@@ -245,11 +256,11 @@ static int HybridHexValue(char Character)
     }
     if (Character >= 'a' && Character <= 'f')
     {
-        return Character - 'a' + 10;
+        return Character - 'a' + HYBRID_HEX_BASE;
     }
     if (Character >= 'A' && Character <= 'F')
     {
-        return Character - 'A' + 10;
+        return Character - 'A' + HYBRID_HEX_BASE;
     }
     return -1;
 }
@@ -357,7 +368,7 @@ static int HybridAssignDefaultIds(CP_Services Svcs, void *CP_Stream, HybridConfi
                 Ordinal++;
             }
         }
-        char Buffer[256];
+        char Buffer[HYBRID_HOSTNAME_MAX];
         snprintf(Buffer, sizeof(Buffer), "%s%d", Config->SubDPs[i].TypeName, Ordinal);
         Config->SubDPs[i].Name = strdup(Buffer);
     }
@@ -591,46 +602,49 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
     return Config;
 }
 
-static FMField HybridSubDPInfoList[] = {
+static const FMField HybridSubDPInfoList[] = {
     {"Name", "string", sizeof(char *), FMOffset(HybridSubDPInfo, Name)},
     {"Length", "integer", sizeof(int), FMOffset(HybridSubDPInfo, Length)},
     {"Available", "integer", sizeof(int), FMOffset(HybridSubDPInfo, Available)},
     {"Address", "char[Length]", sizeof(char), FMOffset(HybridSubDPInfo, Address)},
     {NULL, NULL, 0, 0}};
 
-static FMField HybridReaderContactList[] = {
+static const FMField HybridReaderContactList[] = {
     {"NumSubDPs", "integer", sizeof(int), FMOffset(HybridContactInfo, NumSubDPs)},
     {"Hostname", "string", sizeof(char *), FMOffset(HybridContactInfo, Hostname)},
     {"SubInfo", "HybridSubDPInfo[NumSubDPs]", sizeof(struct _HybridSubDPInfo),
      FMOffset(HybridContactInfo, SubInfo)},
     {NULL, NULL, 0, 0}};
 
-static FMStructDescRec HybridReaderContactStructs[] = {
-    {"HybridReaderContactInfo", HybridReaderContactList, sizeof(struct _HybridContactInfo), NULL},
-    {"HybridSubDPInfo", HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
+static const FMStructDescRec HybridReaderContactStructs[] = {
+    {"HybridReaderContactInfo", (FMFieldList)HybridReaderContactList,
+     sizeof(struct _HybridContactInfo), NULL},
+    {"HybridSubDPInfo", (FMFieldList)HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
-static FMField HybridWriterContactList[] = {
+static const FMField HybridWriterContactList[] = {
     {"NumSubDPs", "integer", sizeof(int), FMOffset(HybridContactInfo, NumSubDPs)},
     {"Hostname", "string", sizeof(char *), FMOffset(HybridContactInfo, Hostname)},
     {"SubInfo", "HybridSubDPInfo[NumSubDPs]", sizeof(struct _HybridSubDPInfo),
      FMOffset(HybridContactInfo, SubInfo)},
     {NULL, NULL, 0, 0}};
 
-static FMStructDescRec HybridWriterContactStructs[] = {
-    {"HybridWriterContactInfo", HybridWriterContactList, sizeof(struct _HybridContactInfo), NULL},
-    {"HybridSubDPInfo", HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
+static const FMStructDescRec HybridWriterContactStructs[] = {
+    {"HybridWriterContactInfo", (FMFieldList)HybridWriterContactList,
+     sizeof(struct _HybridContactInfo), NULL},
+    {"HybridSubDPInfo", (FMFieldList)HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
-static FMField HybridTimestepInfoList[] = {
+static const FMField HybridTimestepInfoList[] = {
     {"NumSubInfos", "integer", sizeof(int), FMOffset(HybridTimestepInfo, NumSubInfos)},
     {"SubInfo", "HybridSubDPInfo[NumSubInfos]", sizeof(struct _HybridSubDPInfo),
      FMOffset(HybridTimestepInfo, SubInfo)},
     {NULL, NULL, 0, 0}};
 
-static FMStructDescRec HybridTimestepInfoStructs[] = {
-    {"HybridTimestepInfo", HybridTimestepInfoList, sizeof(struct _HybridTimestepInfo), NULL},
-    {"HybridSubDPInfo", HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
+static const FMStructDescRec HybridTimestepInfoStructs[] = {
+    {"HybridTimestepInfo", (FMFieldList)HybridTimestepInfoList, sizeof(struct _HybridTimestepInfo),
+     NULL},
+    {"HybridSubDPInfo", (FMFieldList)HybridSubDPInfoList, sizeof(struct _HybridSubDPInfo), NULL},
     {NULL, NULL, 0, NULL}};
 
 static void HybridEncodeSubInfo(FMFormat Format, void *Info, HybridSubDPInfo Result)
@@ -1415,7 +1429,7 @@ static int HybridGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParam
                       "Hybrid DataPlane: none of the configured sub-dataplanes is usable.\n");
         return -1;
     }
-    return 1000;
+    return HYBRID_PRIORITY;
 }
 
 static void HybridUnGetPriority(CP_Services Svcs, void *CP_Stream)
@@ -1423,33 +1437,31 @@ static void HybridUnGetPriority(CP_Services Svcs, void *CP_Stream)
     Svcs->verbose(CP_Stream, DPPerStepVerbose, "Hybrid Dataplane unloading\n");
 }
 
-static struct _CP_DP_Interface HybridDPInterface = {0};
+static const struct _CP_DP_Interface HybridDPInterface = {
+    .DPName = "hybrid",
+    .ReaderContactFormats = (FMStructDescList)HybridReaderContactStructs,
+    .WriterContactFormats = (FMStructDescList)HybridWriterContactStructs,
+    .TimestepInfoFormats = (FMStructDescList)HybridTimestepInfoStructs,
+    .initReader = HybridInitReader,
+    .initWriter = HybridInitWriter,
+    .initWriterPerReader = HybridInitWriterPerReader,
+    .provideWriterDataToReader = HybridProvideWriterDataToReader,
+    .readRemoteMemory = (CP_DP_ReadRemoteMemoryFunc)HybridReadRemoteMemory,
+    .waitForCompletion = HybridWaitForCompletion,
+    .notifyConnFailure = HybridNotifyConnFailure,
+    .provideTimestep = (CP_DP_ProvideTimestepFunc)HybridProvideTimestep,
+    .readerRegisterTimestep = HybridReaderRegisterTimestep,
+    .releaseTimestep = (CP_DP_ReleaseTimestepFunc)HybridReleaseTimestep,
+    .readerReleaseTimestep = HybridReaderReleaseTimestep,
+    .WSRreadPatternLocked = HybridWSRReadPatternLocked,
+    .RSreadPatternLocked = HybridRSReadPatternLocked,
+    .RSReleaseTimestep = HybridRSReleaseTimestep,
+    .timestepArrived = (CP_DP_ReaderTimestepArrivalFunc)HybridTimestepArrived,
+    .destroyReader = HybridDestroyReader,
+    .destroyWriter = HybridDestroyWriter,
+    .destroyWriterPerReader = HybridDestroyWriterPerReader,
+    .getPriority = HybridGetPriority,
+    .unGetPriority = HybridUnGetPriority,
+};
 
-extern CP_DP_Interface LoadHybridDP()
-{
-    HybridDPInterface.DPName = "hybrid";
-    HybridDPInterface.ReaderContactFormats = HybridReaderContactStructs;
-    HybridDPInterface.WriterContactFormats = HybridWriterContactStructs;
-    HybridDPInterface.TimestepInfoFormats = HybridTimestepInfoStructs;
-    HybridDPInterface.initReader = HybridInitReader;
-    HybridDPInterface.initWriter = HybridInitWriter;
-    HybridDPInterface.initWriterPerReader = HybridInitWriterPerReader;
-    HybridDPInterface.provideWriterDataToReader = HybridProvideWriterDataToReader;
-    HybridDPInterface.readRemoteMemory = (CP_DP_ReadRemoteMemoryFunc)HybridReadRemoteMemory;
-    HybridDPInterface.waitForCompletion = HybridWaitForCompletion;
-    HybridDPInterface.notifyConnFailure = HybridNotifyConnFailure;
-    HybridDPInterface.provideTimestep = (CP_DP_ProvideTimestepFunc)HybridProvideTimestep;
-    HybridDPInterface.readerRegisterTimestep = HybridReaderRegisterTimestep;
-    HybridDPInterface.releaseTimestep = (CP_DP_ReleaseTimestepFunc)HybridReleaseTimestep;
-    HybridDPInterface.readerReleaseTimestep = HybridReaderReleaseTimestep;
-    HybridDPInterface.WSRreadPatternLocked = HybridWSRReadPatternLocked;
-    HybridDPInterface.RSreadPatternLocked = HybridRSReadPatternLocked;
-    HybridDPInterface.RSReleaseTimestep = HybridRSReleaseTimestep;
-    HybridDPInterface.timestepArrived = (CP_DP_ReaderTimestepArrivalFunc)HybridTimestepArrived;
-    HybridDPInterface.destroyReader = HybridDestroyReader;
-    HybridDPInterface.destroyWriter = HybridDestroyWriter;
-    HybridDPInterface.destroyWriterPerReader = HybridDestroyWriterPerReader;
-    HybridDPInterface.getPriority = HybridGetPriority;
-    HybridDPInterface.unGetPriority = HybridUnGetPriority;
-    return &HybridDPInterface;
-}
+extern CP_DP_Interface LoadHybridDP() { return (CP_DP_Interface)&HybridDPInterface; }
