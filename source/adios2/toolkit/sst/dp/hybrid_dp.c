@@ -423,6 +423,7 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                 struct _SstParams Overrides = {0};
                 char *InstanceId = NULL;
                 enum HybridSubDPScope Scope = HybridScopeAny;
+                int ScopeSet = 0;
                 char *OptionCursor = Options;
                 while (OptionCursor && *OptionCursor)
                 {
@@ -473,6 +474,7 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                                 else
                                 {
                                     Scope = (enum HybridSubDPScope)ParsedScope;
+                                    ScopeSet = 1;
                                 }
                             }
                             else if (SST_AddDataPlaneParam(&Overrides, Key, Value) != 0)
@@ -508,6 +510,19 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                 SST_MergeDataPlaneParams(&SubParams, Params, &Overrides);
                 SubDP->Params = SubParams;
                 SST_FreeDataPlaneParams(&Overrides);
+
+                /* Some providers (notably libfabric shm) accept remote
+                 * addresses in fi_av_insert() but cannot actually serve them. */
+                if (!ScopeSet)
+                {
+                    const char *Provider = get_dataplane_config(&SubDP->Params, "FABRIC_PROVIDER");
+                    const char *Interface = get_dataplane_config(&SubDP->Params, "FABRIC_IFACE");
+                    if ((Provider && strcasecmp(Provider, "shm") == 0) ||
+                        (Interface && strcasecmp(Interface, "shm") == 0))
+                    {
+                        SubDP->Scope = HybridScopeLocal;
+                    }
+                }
             }
         }
         Cursor = Separator ? Separator + 1 : NULL;
