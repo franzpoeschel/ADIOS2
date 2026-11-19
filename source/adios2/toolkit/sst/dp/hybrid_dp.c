@@ -409,13 +409,24 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                 *Options++ = '\0';
             }
             char *TypeName = HybridTrim(Entry);
-            CP_DP_Interface Interface = HybridLoadSubDP(TypeName);
+            int IsShmShorthand = strcasecmp(TypeName, "shm") == 0;
+            CP_DP_Interface Interface = HybridLoadSubDP(IsShmShorthand ? "libfabric" : TypeName);
             if (!Interface)
             {
                 if (Svcs)
                 {
-                    Svcs->verbose(CP_Stream, DPCriticalVerbose,
-                                  "Hybrid DataPlane: unknown sub-dataplane \"%s\".\n", TypeName);
+                    if (IsShmShorthand)
+                    {
+                        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                                      "Hybrid DataPlane: the \"shm\" shorthand requires the "
+                                      "libfabric dataplane.\n");
+                    }
+                    else
+                    {
+                        Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                                      "Hybrid DataPlane: unknown sub-dataplane \"%s\".\n",
+                                      TypeName);
+                    }
                 }
             }
             else
@@ -423,6 +434,7 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                 struct _SstParams Overrides = {0};
                 char *InstanceId = NULL;
                 enum HybridSubDPScope Scope = HybridScopeAny;
+                int ScopeSet = 0;
                 char *OptionCursor = Options;
                 while (OptionCursor && *OptionCursor)
                 {
@@ -473,6 +485,7 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                                 else
                                 {
                                     Scope = (enum HybridSubDPScope)ParsedScope;
+                                    ScopeSet = 1;
                                 }
                             }
                             else if (SST_AddDataPlaneParam(&Overrides, Key, Value) != 0)
@@ -488,6 +501,23 @@ static HybridConfig HybridConfigCreate(CP_Services Svcs, void *CP_Stream, struct
                         }
                     }
                     OptionCursor = Ampersand ? Ampersand + 1 : NULL;
+                }
+
+                if (IsShmShorthand)
+                {
+                    if (!ScopeSet)
+                    {
+                        Scope = HybridScopeLocal;
+                    }
+                    if (SST_AddDataPlaneParam(&Overrides, "FABRIC_PROVIDER", "shm") != 0 ||
+                        SST_AddDataPlaneParam(&Overrides, "FABRIC_IFACE", "shm") != 0)
+                    {
+                        if (Svcs)
+                        {
+                            Svcs->verbose(CP_Stream, DPCriticalVerbose,
+                                          "Hybrid DataPlane: failed to add shm defaults.\n");
+                        }
+                    }
                 }
 
                 int Index = Config->NumSubDPs++;

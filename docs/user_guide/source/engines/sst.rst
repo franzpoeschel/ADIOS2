@@ -341,7 +341,9 @@ The following environment variables are read and interpreted by the data planes:
 
       .. code-block:: sh
 
-         SST_HYBRID_DP='libfabric?id=shm&FABRIC_PROVIDER=shm&FABRIC_IFACE=shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
+         SST_HYBRID_DP='shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
+
+      ``shm`` is shorthand for a libfabric instance with ``FABRIC_PROVIDER=shm``, ``FABRIC_IFACE=shm``, and ``scope=local``. Explicit options after ``shm?`` override those defaults, and an explicit ``scope=`` overrides the local default.
 
       If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``.
 

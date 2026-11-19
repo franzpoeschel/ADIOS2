@@ -944,24 +944,6 @@ static void fini_fabric(struct fabric_state *fabric, CP_Services Svcs, void *CP_
 
 typedef struct fabric_state *FabricState;
 
-static void RdmaGetLocalHostname(char *Buffer, size_t Size)
-{
-    if (gethostname(Buffer, Size - 1) != 0)
-    {
-        snprintf(Buffer, Size, "unknown");
-    }
-    Buffer[Size - 1] = '\0';
-}
-
-static int RdmaIsShmFabric(FabricState Fabric)
-{
-    return Fabric && Fabric->info && Fabric->info->fabric_attr &&
-           Fabric->info->fabric_attr->prov_name &&
-           strncmp(Fabric->info->fabric_attr->prov_name, "shm", 3) == 0;
-}
-
-static int RdmaHostsMatch(const char *A, const char *B) { return A && B && strcmp(A, B) == 0; }
-
 typedef struct _RdmaCompletionHandle
 {
     struct fid_mr *LocalMR;
@@ -1116,7 +1098,6 @@ typedef struct _Rdma_WS_Stream
 typedef struct _RdmaReaderContactInfo
 {
     void *RS_Stream;
-    char *Hostname;
     size_t Length;
     void *Address;
 } *RdmaReaderContactInfo;
@@ -1124,7 +1105,6 @@ typedef struct _RdmaReaderContactInfo
 typedef struct _RdmaWriterContactInfo
 {
     void *WS_Stream;
-    char *Hostname;
     size_t Length;
     void *Address;
     struct _RdmaBufferHandle ReaderRollHandle;
@@ -1514,7 +1494,6 @@ static DP_RS_Stream RdmaInitReader(CP_Services Svcs, void *CP_Stream, void **Rea
     RdmaReaderContactInfo ContactInfo = malloc(sizeof(struct _RdmaReaderContactInfo));
     FabricState Fabric;
     const char *PreloadEnv = NULL;
-    char LocalHostname[256];
 
     memset(Stream, 0, sizeof(*Stream));
     Stream->Fabric = calloc(1, sizeof(*Fabric));
@@ -1532,8 +1511,6 @@ static DP_RS_Stream RdmaInitReader(CP_Services Svcs, void *CP_Stream, void **Rea
     *ReaderContactInfoPtr = NULL;
 
     ContactInfo->RS_Stream = Stream;
-    RdmaGetLocalHostname(LocalHostname, sizeof(LocalHostname));
-    ContactInfo->Hostname = strdup(LocalHostname);
 
     if (Params)
     {
@@ -1891,11 +1868,7 @@ static DP_WSR_Stream RdmaInitWriterPerReader(CP_Services Svcs, DP_WS_Stream WS_S
     RdmaWriterContactInfo ContactInfo;
     RdmaReaderContactInfo *providedReaderInfo = (RdmaReaderContactInfo *)providedReaderInfo_v;
     RdmaBufferHandle ReaderRollHandle;
-    char LocalHostname[256];
-    int IsShm = RdmaIsShmFabric(Fabric);
     int i;
-
-    RdmaGetLocalHostname(LocalHostname, sizeof(LocalHostname));
 
     WSR_Stream->WS_Stream = WS_Stream; /* pointer to writer struct */
     WSR_Stream->PeerCohort = PeerCohort;
@@ -1908,14 +1881,6 @@ static DP_WSR_Stream RdmaInitWriterPerReader(CP_Services Svcs, DP_WS_Stream WS_S
     for (i = 0; i < readerCohortSize; i++)
     {
         WSR_Stream->ReaderAddr[i] = FI_ADDR_UNSPEC;
-        if (IsShm && !RdmaHostsMatch(LocalHostname, providedReaderInfo[i]->Hostname))
-        {
-            Svcs->verbose(WS_Stream->CP_Stream, DPTraceDupVerbose,
-                          "[RdmaInitWriterPerReader] Reader rank %d is on another host and not "
-                          "routable over shm.\n",
-                          i);
-            continue;
-        }
         if (fi_av_insert(Fabric->av, providedReaderInfo[i]->Address, 1, &WSR_Stream->ReaderAddr[i],
                          0, NULL) < 1)
         {
@@ -1942,7 +1907,6 @@ static DP_WSR_Stream RdmaInitWriterPerReader(CP_Services Svcs, DP_WS_Stream WS_S
 
     ContactInfo = calloc(1, sizeof(struct _RdmaWriterContactInfo));
     ContactInfo->WS_Stream = WSR_Stream;
-    ContactInfo->Hostname = strdup(LocalHostname);
 
     ContactInfo->Length = Fabric->info->src_addrlen;
     ContactInfo->Address = malloc(ContactInfo->Length);
@@ -2008,21 +1972,11 @@ static void RdmaProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_Stre
      * preserved)
      */
     RS_Stream->WriterContactInfo = malloc(sizeof(struct _RdmaWriterContactInfo) * writerCohortSize);
-    int IsShm = RdmaIsShmFabric(Fabric);
-    const char *LocalHostname = RS_Stream->ContactInfo ? RS_Stream->ContactInfo->Hostname : NULL;
 
     for (int i = 0; i < writerCohortSize; i++)
     {
         RS_Stream->WriterAddr[i] = FI_ADDR_UNSPEC;
         RS_Stream->WriterContactInfo[i].WS_Stream = providedWriterInfo[i]->WS_Stream;
-        if (IsShm && !RdmaHostsMatch(LocalHostname, providedWriterInfo[i]->Hostname))
-        {
-            Svcs->verbose(RS_Stream->CP_Stream, DPTraceDupVerbose,
-                          "[RdmaProvideWriterDataToReader] Writer rank %d is on another host and "
-                          "not routable over shm.\n",
-                          i);
-            continue;
-        }
         if (fi_av_insert(Fabric->av, providedWriterInfo[i]->Address, 1, &RS_Stream->WriterAddr[i],
                          0, NULL) < 1)
         {
@@ -2577,7 +2531,6 @@ static void RdmaDestroyReader(CP_Services Svcs, DP_RS_Stream RS_Stream_v)
     free(RS_Stream->WriterRoll);
     if (RS_Stream->ContactInfo)
     {
-        free(RS_Stream->ContactInfo->Hostname);
         free(RS_Stream->ContactInfo->Address);
         free(RS_Stream->ContactInfo);
     }
@@ -2617,7 +2570,6 @@ static void RdmaDestroyWriterPerReader(CP_Services Svcs, DP_WSR_Stream WSR_Strea
     if (WSR_Stream->WriterContactInfo)
     {
         WriterContactInfo = WSR_Stream->WriterContactInfo;
-        free(WriterContactInfo->Hostname);
         free(WriterContactInfo->Address);
     }
     if (WriterContactInfo->ReaderRollHandle.Block)
@@ -2635,7 +2587,6 @@ static void RdmaDestroyWriterPerReader(CP_Services Svcs, DP_WSR_Stream WSR_Strea
 
 static FMField RdmaReaderContactList[] = {
     {"reader_ID", "integer", sizeof(void *), FMOffset(RdmaReaderContactInfo, RS_Stream)},
-    {"Hostname", "string", sizeof(char *), FMOffset(RdmaReaderContactInfo, Hostname)},
     {"Length", "integer", sizeof(int), FMOffset(RdmaReaderContactInfo, Length)},
     {"Address", "integer[Length]", sizeof(char), FMOffset(RdmaReaderContactInfo, Address)},
     {NULL, NULL, 0, 0}};
@@ -2701,7 +2652,6 @@ static void RdmaDestroyWriter(CP_Services Svcs, DP_WS_Stream WS_Stream_v)
 
 static FMField RdmaWriterContactList[] = {
     {"writer_ID", "integer", sizeof(void *), FMOffset(RdmaWriterContactInfo, WS_Stream)},
-    {"Hostname", "string", sizeof(char *), FMOffset(RdmaWriterContactInfo, Hostname)},
     {"Length", "integer", sizeof(int), FMOffset(RdmaWriterContactInfo, Length)},
     {"Address", "integer[Length]", sizeof(char), FMOffset(RdmaWriterContactInfo, Address)},
     {"ReaderRollHandle", "RdmaBufferHandle", sizeof(struct _RdmaBufferHandle),
