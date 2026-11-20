@@ -828,6 +828,10 @@ static DP_RS_Stream HybridInitReader(CP_Services Svcs, void *CP_Stream, void **R
         return NULL;
     }
 
+    Svcs->verbose(CP_Stream, DPTraceDupVerbose,
+                  "Hybrid DataPlane: reader initialized %d of %zu sub-dataplanes.\n", NumAvailable,
+                  Stream->NumSubDPs);
+
     Stream->MyContact = HybridMakeContact(Config, Config->ReaderContactFormats, ContactInfo,
                                           Available, Stream->Hostname);
     free(ContactInfo);
@@ -917,6 +921,9 @@ static DP_WS_Stream HybridInitWriter(CP_Services Svcs, void *CP_Stream, struct _
         free(Stream);
         return NULL;
     }
+    Svcs->verbose(CP_Stream, DPTraceDupVerbose,
+                  "Hybrid DataPlane: writer initialized %d of %zu sub-dataplanes.\n", NumAvailable,
+                  Stream->NumSubDPs);
     return Stream;
 }
 
@@ -1066,6 +1073,10 @@ static void HybridProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_St
         }
         if (!AllAvailable)
         {
+            Svcs->verbose(Stream->CP_Stream, DPTraceDupVerbose,
+                          "Hybrid DataPlane: sub-dataplane \"%s\" is not available for all "
+                          "writers.\n",
+                          SubDP->Name);
             continue;
         }
 
@@ -1096,6 +1107,9 @@ static void HybridProvideWriterDataToReader(CP_Services Svcs, DP_RS_Stream RS_St
 
         SubDP->Interface->provideWriterDataToReader(Svcs, SubDP->RS_Stream, WriterCohortSize,
                                                     PeerCohort, WriterInfo);
+        Svcs->verbose(Stream->CP_Stream, DPTraceVerbose,
+                      "Hybrid DataPlane: sub-dataplane \"%s\" configured for %d writers.\n",
+                      SubDP->Name, WriterCohortSize);
 
         for (int j = 0; j < WriterCohortSize; j++)
         {
@@ -1114,6 +1128,11 @@ static void *HybridReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v, 
     HybridTimestepInfo TimestepInfo = (HybridTimestepInfo)DP_TimestepInfo;
     int SameHost = HybridSameHost(Stream, Rank);
 
+    Svcs->verbose(Stream->CP_Stream, DPTraceVerbose,
+                  "Hybrid DataPlane: read request writer rank %d, timestep %zu, offset %zu, "
+                  "length %zu.\n",
+                  Rank, Timestep, Offset, Length);
+
     for (size_t i = 0; i < Stream->NumSubDPs; i++)
     {
         if (!HybridSubDPIsCandidate(Stream, i, SameHost))
@@ -1126,6 +1145,10 @@ static void *HybridReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v, 
             SubDP->Interface->getPeerRouteStatus(Svcs, SubDP->RS_Stream, Rank) ==
                 DPPeerRouteNoRoute)
         {
+            Svcs->verbose(Stream->CP_Stream, DPTraceDupVerbose,
+                          "Hybrid DataPlane: sub-dataplane \"%s\" has no route to writer rank "
+                          "%d.\n",
+                          SubDP->Name, Rank);
             continue;
         }
         void *SubTimestepInfo = NULL;
@@ -1146,18 +1169,33 @@ static void *HybridReadRemoteMemory(CP_Services Svcs, DP_RS_Stream RS_Stream_v, 
             }
         }
 
+        Svcs->verbose(Stream->CP_Stream, DPTraceVerbose,
+                      "Hybrid DataPlane: trying sub-dataplane \"%s\" for writer rank %d.\n",
+                      SubDP->Name, Rank);
         DP_CompletionHandle Handle = SubDP->Interface->readRemoteMemory(
             Svcs, SubDP->RS_Stream, Rank, Timestep, Offset, Length, Buffer, SubTimestepInfo);
         if (Handle)
         {
+            Svcs->verbose(Stream->CP_Stream, DPTraceVerbose,
+                          "Hybrid DataPlane: sub-dataplane \"%s\" posted read for writer rank "
+                          "%d.\n",
+                          SubDP->Name, Rank);
             HybridCompletionHandle Completion = malloc(sizeof(*Completion));
             Completion->Interface = SubDP->Interface;
             Completion->Handle = Handle;
             Completion->SubTimestepInfo = SubTimestepInfo;
             return Completion;
         }
+        Svcs->verbose(Stream->CP_Stream, DPTraceDupVerbose,
+                      "Hybrid DataPlane: sub-dataplane \"%s\" could not post read for writer "
+                      "rank %d, trying next.\n",
+                      SubDP->Name, Rank);
         free(SubTimestepInfo);
     }
+    Svcs->verbose(Stream->CP_Stream, DPCriticalVerbose,
+                  "Hybrid DataPlane: no sub-dataplane could post read for writer rank %d, "
+                  "timestep %zu.\n",
+                  Rank, Timestep);
     return NULL;
 }
 
