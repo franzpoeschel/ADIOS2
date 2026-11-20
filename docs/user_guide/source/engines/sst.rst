@@ -333,7 +333,9 @@ The following environment variables are read and interpreted by the data planes:
 
     * ``SST_UCX_PROGRESS_THREAD``: Some setups of UCX may require progress threads. Unlike in the RDMA data plane, progress threads are not opened automatically, but must be requested by defining this environment variable as either ``1``, ``on`` or ``yes``. Any other value as well as no definition of the environment variable at all will not create progress threads.
 
-    * Tip: For restricting UCX to communication with shared memory only, set ``UCX_TLS=shm``. Progress threads must be used on the writer and reader side. It might be necessary to additionally set ``UCX_POSIX_USE_PROC_LINK=n`` on some systems.
+    * UCX configuration variables such as ``UCX_TLS``, ``UCX_NET_DEVICES``, or ``UCX_IB_GID_INDEX`` can be supplied with ``IO.SetParameter`` or as per-instance hybrid options, e.g. ``ucx?UCX_TLS=shm``. They are applied to that UCX context with ``ucp_config_modify()`` instead of changing the process environment, which avoids affecting a UCX-based MPI implementation.
+
+    * Tip: For restricting the UCX data plane to shared memory only, set ``UCX_TLS=shm`` through the data plane configuration. Progress threads must be used on the writer and reader side. It might be necessary to additionally set ``UCX_POSIX_USE_PROC_LINK=n`` on some systems.
 
 * By the **hybrid data plane**:
 
