@@ -1422,9 +1422,7 @@ static FMStructDescRec EvpathWriterContactStructs[] = {
 //     sizeof(struct _EvpathPerTimestepInfo), NULL},
 //    {NULL, NULL, 0, NULL}};
 
-static struct _CP_DP_Interface evpathDPInterface = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                                    NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+static struct _CP_DP_Interface evpathDPInterface = {0};
 
 static int EvpathGetPriority(CP_Services Svcs, void *CP_Stream, struct _SstParams *Params)
 {

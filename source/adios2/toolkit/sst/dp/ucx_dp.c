@@ -49,6 +49,7 @@
 
 #include "sst_data.h"
 
+#include "dp_config.h"
 #include "dp_interface.h"
 
 pthread_mutex_t ucx_wsr_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -102,6 +103,35 @@ struct fabric_state
  *   plane would replace one or both of these with RDMA functionality.
  */
 
+static void UcxApplyConfigOverrides(ucp_config_t *Config, struct _SstParams *Params,
+                                    CP_Services Svcs, void *CP_Stream)
+{
+    if (!Params)
+    {
+        return;
+    }
+    for (int i = 0; i < Params->DataPlaneParamCount; i++)
+    {
+        const char *Key = Params->DataPlaneParamKeys[i];
+        if (strncmp(Key, "UCX_", 4) != 0)
+        {
+            continue;
+        }
+        const char *Name = Key + 4;
+        const char *Value = Params->DataPlaneParamValues[i];
+        ucs_status_t Status = ucp_config_modify(Config, Name, Value);
+        if (Status != UCS_OK)
+        {
+            Svcs->verbose(CP_Stream, DPCriticalVerbose, "UCX Error applying %s=%s: %s.\n", Key,
+                          Value, ucs_status_string(Status));
+        }
+        else
+        {
+            Svcs->verbose(CP_Stream, DPTraceDupVerbose, "UCX: applied %s=%s.\n", Key, Value);
+        }
+    }
+}
+
 static ucs_status_t init_fabric(struct fabric_state *fabric, struct _SstParams *Params,
                                 CP_Services Svcs, void *CP_Stream)
 {
@@ -121,6 +151,7 @@ static ucs_status_t init_fabric(struct fabric_state *fabric, struct _SstParams *
                       "UCX Error during ucp_config_read() with: %s.\n", ucs_status_string(status));
         return status;
     }
+    UcxApplyConfigOverrides(config, Params, Svcs, CP_Stream);
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
     ucp_params.features = UCP_FEATURE_RMA | UCP_FEATURE_WAKEUP;
 
@@ -317,10 +348,11 @@ typedef enum
 /*
  * `export UCX_POSIX_USE_PROC_LINK=n` might be necessary to make this work.
  */
-static ProgressThread use_progress_thread()
+static ProgressThread use_progress_thread(struct _SstParams *Params)
 {
     size_t const max_len = 4;
-    char const *use_progress_thread_envvar = getenv("SST_UCX_PROGRESS_THREAD");
+    char const *use_progress_thread_envvar =
+        get_dataplane_config(Params, "SST_UCX_PROGRESS_THREAD");
     char use_progress_thread[max_len];
 
     if (!use_progress_thread_envvar)
@@ -367,7 +399,7 @@ static DP_WS_Stream UcxInitWriter(CP_Services Svcs, void *CP_Stream, struct _Sst
 
     Stream->CP_Stream = CP_Stream;
 
-    switch (use_progress_thread())
+    switch (use_progress_thread(Params))
     {
     case ProgressThreadUnspecified:
         // Since UCX does not allow asking the worker if it supports

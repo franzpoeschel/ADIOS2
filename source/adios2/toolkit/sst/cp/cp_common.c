@@ -31,6 +31,7 @@
 #include "sst.h"
 
 #include "cp_internal.h"
+#include "dp_config.h"
 
 char *SSTStreamStatusStr[] = {"NotOpen",    "Opening",    "Established",
                               "PeerClosed", "PeerFailed", "Closed"};
@@ -137,6 +138,7 @@ void CP_validateParams(SstStream Stream, SstParams Params, int Writer)
             Params->DataTransport = strdup("evpath");
         }
         else if ((strcmp(SelectedTransport, "rdma") == 0) ||
+                 (strcmp(SelectedTransport, "libfabric") == 0) ||
                  (strcmp(SelectedTransport, "ib") == 0) ||
                  (strcmp(SelectedTransport, "fabric") == 0))
         {
@@ -246,7 +248,13 @@ static FMField CP_SstParamsList_RAW[] = {
     {#Param, #Typedecl, sizeof(Typedecl), FMOffset(struct _SstParams *, Param)},
     SST_FOREACH_PARAMETER_TYPE_4ARGS(declare_field)
 #undef declare_field
-        {NULL, NULL, 0, 0}};
+        {"DataPlaneParamCount", "integer", sizeof(int),
+         FMOffset(struct _SstParams *, DataPlaneParamCount)},
+    {"DataPlaneParamKeys", "string[DataPlaneParamCount]", sizeof(char *),
+     FMOffset(struct _SstParams *, DataPlaneParamKeys)},
+    {"DataPlaneParamValues", "string[DataPlaneParamCount]", sizeof(char *),
+     FMOffset(struct _SstParams *, DataPlaneParamValues)},
+    {NULL, NULL, 0, 0}};
 static FMField *CP_SstParamsList = NULL;
 
 static FMField CP_ReaderInitList[] = {
@@ -1156,6 +1164,7 @@ extern void SstStreamDestroy(SstStream Stream)
         free(Stream->ConfigParams->DataInterface);
     if (Stream->ConfigParams->ControlModule)
         free(Stream->ConfigParams->ControlModule);
+    SST_FreeDataPlaneParams(Stream->ConfigParams);
 
     if (Stream->Filename)
     {

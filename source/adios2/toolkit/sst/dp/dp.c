@@ -12,6 +12,7 @@
 #include <fm.h>
 
 #include "SSTConfig.h"
+#include "dp_config.h"
 #include "dp_interface.h"
 #include "sst.h"
 #include "sst_data.h"
@@ -37,6 +38,7 @@ extern CP_DP_Interface LoadMpiDP();
 extern CP_DP_Interface LoadMercuryDP();
 #endif /* SST_HAVE_MERCURY */
 extern CP_DP_Interface LoadEVpathDP();
+extern CP_DP_Interface LoadHybridDP();
 
 typedef struct _DPElement
 {
@@ -75,7 +77,7 @@ CP_DP_Interface SelectDP(CP_Services Svcs, void *CP_Stream, struct _SstParams *P
 {
     CP_DP_Interface Ret;
     DPlist List = NULL;
-    const char *Required = getenv("SST_REQUIRE_DATAPLANE");
+    const char *Required = get_dataplane_config(Params, "SST_REQUIRE_DATAPLANE");
     if (Required && (Required[0] != 0))
     {
         free(Params->DataTransport);
@@ -86,8 +88,10 @@ CP_DP_Interface SelectDP(CP_Services Svcs, void *CP_Stream, struct _SstParams *P
         Required = NULL;
     }
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadEVpathDP(), "evpath", Params);
+    List = AddDPPossibility(Svcs, CP_Stream, List, LoadHybridDP(), "hybrid", Params);
 #ifdef SST_HAVE_LIBFABRIC
     List = AddDPPossibility(Svcs, CP_Stream, List, LoadRdmaDP(), "rdma", Params);
+    List = AddDPPossibility(Svcs, CP_Stream, List, LoadRdmaDP(), "libfabric", Params);
 #endif /* SST_HAVE_LIBFABRIC */
 
 #ifdef SST_HAVE_UCX

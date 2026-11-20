@@ -110,6 +110,9 @@ struct _SstParams
 #define declare_struct(Param, Type, Typedecl, Default) Typedecl Param;
     SST_FOREACH_PARAMETER_TYPE_4ARGS(declare_struct)
 #undef declare_struct
+    int DataPlaneParamCount;
+    char **DataPlaneParamKeys;
+    char **DataPlaneParamValues;
 };
 
 #endif /* !_SST_DATA_H_ */

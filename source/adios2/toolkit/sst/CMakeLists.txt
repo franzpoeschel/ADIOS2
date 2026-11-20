@@ -9,6 +9,7 @@
 add_library(sst OBJECT
   dp/dp.c
   dp/evpath_dp.c
+  dp_config.c
   cp/cp_reader.c
   cp/cp_writer.c
   cp/cp_common.c
@@ -35,6 +36,8 @@ if(ADIOS2_SST_HAVE_UCX)
   target_link_libraries(sst
                   PRIVATE ucx::ucx)
 endif()
+
+target_sources(sst PRIVATE dp/hybrid_dp.c)
 
 if(ADIOS2_HAVE_DAOS)
   target_sources(sst PRIVATE dp/daos_dp.c)

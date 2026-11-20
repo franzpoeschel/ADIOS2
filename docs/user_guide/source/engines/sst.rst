@@ -157,8 +157,9 @@ the underlying network communication mechanism to use for exchanging
 data in SST.  Generally this is chosen by SST based upon what is
 available on the current platform.  However, specifying this engine
 parameter allows overriding SST's choice.  Current allowed values are
-**"UCX"**, **"MPI"**, **"RDMA"**, **"Mercury"**, and **"WAN"**.  (**ib** and **fabric**
-are accepted as equivalent to **RDMA** and **evpath** is equivalent to **WAN**.)
+**"UCX"**, **"MPI"**, **"RDMA"**, **"Mercury"**, **"hybrid"**, and **"WAN"**.  (**ib**, **fabric**,
+and **libfabric** are accepted as equivalent to **RDMA**, and **evpath** is equivalent to
+**WAN**.)
 Generally both the reader and writer should be using the same network
 transport, and the network transport chosen may be dictated by the
 situation.  For example, the RDMA transport generally operates only
@@ -308,7 +309,9 @@ BeginStep timeouts) and writer-side rules (like queue limit behavior) apply.
 
 The ``SST_REQUIRE_DATAPLANE`` environment variable names a data plane that must be used, overriding ``DataTransport``.  If that data plane is not available the stream fails to open instead of falling back to another one.  It is intended for validating a system or a build, and it must reach every rank, which some launchers do not do by default.
 
-Additionally to the above controls, finetuning for technical parameters of the data planes may become necessary under some circumstances. The following environment variables are read and interpreted by the data planes:
+Additionally to the above controls, finetuning for technical parameters of the data planes may become necessary under some circumstances. The following parameters are read and interpreted by the data planes. Each may be supplied as an environment variable or through ``IO.SetParameter`` with the same name. Explicit parameters take precedence over environment variables.
+
+The following environment variables are read and interpreted by the data planes:
 
 * By the **RDMA/libfabric data plane**:
 
@@ -330,7 +333,34 @@ Additionally to the above controls, finetuning for technical parameters of the d
 
     * ``SST_UCX_PROGRESS_THREAD``: Some setups of UCX may require progress threads. Unlike in the RDMA data plane, progress threads are not opened automatically, but must be requested by defining this environment variable as either ``1``, ``on`` or ``yes``. Any other value as well as no definition of the environment variable at all will not create progress threads.
 
-    * Tip: For restricting UCX to communication with shared memory only, set ``UCX_TLS=shm``. Progress threads must be used on the writer and reader side. It might be necessary to additionally set ``UCX_POSIX_USE_PROC_LINK=n`` on some systems.
+    * UCX configuration variables such as ``UCX_TLS``, ``UCX_NET_DEVICES``, or ``UCX_IB_GID_INDEX`` can be supplied with ``IO.SetParameter`` or as per-instance hybrid options, e.g. ``ucx?UCX_TLS=shm``. They are applied to that UCX context with ``ucp_config_modify()`` instead of changing the process environment, which avoids affecting a UCX-based MPI implementation.
+
+    * Tip: For restricting the UCX data plane to shared memory only, set ``UCX_TLS=shm`` through the data plane configuration. Progress threads must be used on the writer and reader side. It might be necessary to additionally set ``UCX_POSIX_USE_PROC_LINK=n`` on some systems.
+
+* By the **hybrid data plane**:
+
+    * ``SST_HYBRID_DP`` configures an ordered list of sub-dataplanes. Instances are separated by ``;``, the optional parameter list is introduced by ``?``, and parameters are separated by ``&``. An instance has the form ``type?option&option...``. The optional ``id=`` names the instance and the optional ``scope=local|remote|any`` filters it by host locality. Other options are dataplane parameters. For example:
+
+      .. code-block:: sh
+
+         SST_HYBRID_DP='shm;libfabric?id=ib&FABRIC_PROVIDER=verbs&FABRIC_IFACE=ib0'
+
+      ``shm`` is shorthand for a libfabric instance with ``FABRIC_PROVIDER=shm``, ``FABRIC_IFACE=shm``, and ``scope=local``. Explicit options after ``shm?`` override those defaults, and an explicit ``scope=`` overrides the local default.
+
+      If ``id`` is omitted, it defaults to ``<type><ordinal>`` within that configuration. Explicit ids are required when reader and writer configurations are reordered or differ. Values may percent-encode ``%``, ``&``, and ``;``.
+
+    * ``SST_HYBRID_NODE_ID`` overrides the hostname used by explicit ``scope=`` settings. Implicit routing does not use hostnames.
+
+    The same settings must be configured on the writer and reader; they may be supplied through environment variables or ``IO.SetParameter``. Explicit parameters take precedence over environment variables.
+
+    **Sub-dataplane selection for reads.** A read is fulfilled by one sub-dataplane; the hybrid data plane does not split or duplicate a single read across sub-dataplanes. The writer provides each timestep to every initialized sub-dataplane. On the reader, candidates are considered in configuration order and a sub-dataplane is used only if all of the following hold:
+
+    * it initialized successfully and provides ``readRemoteMemory``;
+    * its explicit ``scope``, if any, matches the writer rank's locality (``local`` = same host, ``remote`` = different host, ``any`` = no filter);
+    * its optional peer-route check does not report ``NO_ROUTE``. RDMA derives this from address-vector insertion; UCX and dataplanes without a route check report unknown and are attempted;
+    * its per-timestep information for that writer rank exists and decodes successfully.
+
+    The first candidate that successfully posts the read owns the request and its completion handle is used for the wait. If a candidate fails before posting, the next candidate is tried. Failures after a read has been posted are not retried through another sub-dataplane. There is currently no latency, bandwidth, queue-depth, or round-robin based load balancing.
 
 * By the **Mercury data plane**:
 

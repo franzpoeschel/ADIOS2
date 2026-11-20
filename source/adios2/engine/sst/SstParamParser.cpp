@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstring>
 #include <memory>
 
 #include "SstParamParser.h"
 #include "adios2/helper/adiosFunctions.h"
 
+#include "adios2/toolkit/sst/dp_config.h"
 #include "adios2/toolkit/sst/sst.h"
 #ifdef _MSC_VER
 #define strdup(x) _strdup(x)
@@ -191,4 +193,27 @@ void SstParamParser::ParseParams(IO &io, struct _SstParams &Params,
     lf_Set##Type##Parameter(#Param, Params.Param);
     SST_FOREACH_PARAMETER_TYPE_4ARGS(get_params);
 #undef get_params
+
+    static const char *DataPlanePrefixes[] = {"SST_",       "FABRIC_", "FI_",
+                                              "SLINGSHOT_", "UCX_",    "OFI_"};
+    for (const auto &Parameter : io.m_Parameters)
+    {
+        std::string Key = Parameter.first;
+        std::transform(Key.begin(), Key.end(), Key.begin(), ::toupper);
+        bool IsDataPlaneParameter = false;
+        for (const char *Prefix : DataPlanePrefixes)
+        {
+            if (Key.compare(0, std::strlen(Prefix), Prefix) == 0)
+            {
+                IsDataPlaneParameter = true;
+                break;
+            }
+        }
+        if (IsDataPlaneParameter &&
+            SST_AddDataPlaneParam(&Params, Parameter.first.c_str(), Parameter.second.c_str()) != 0)
+        {
+            helper::Throw<std::runtime_error>("Engine", "SstParamParser", "ParseParams",
+                                              "Failed to store SST dataplane parameter");
+        }
+    }
 }
